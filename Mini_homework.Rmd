@@ -1,0 +1,47 @@
+---
+title: "Mini_homework"
+author: "Tess McCabe"
+date: "1/31/2018"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+- You want to know the density of fish in a set of
+experimental ponds:
+  - You observe the following counts in ten ponds:
+5,6,7,3,6,5,8,4,4,3
+
+- What is your process model?
+
+My process model is $f(x) = fish\ density$
+
+- What is your data model?
+
+I thought that the poission distribution would be a good fit, because it's sampleing in a fixed space. 
+
+$$P(y| \lambda) = e^{-\lambda}\lambda^{y}$$
+Becuase I have mulitple data points: 
+$$P(y_i| \lambda) = \prod_{i=1}^{n}\ \frac{e^{-\lambda}\lambda^{y_i}}{y_i!}$$
+
+- Solve for the analytical MLE
+
+$$ln(f(y_i)) = \sum_{i=1}^{n}\ ln(\frac{e^{-\lambda}\lambda^{y_i}}{y_i!})$$
+$$ln(f(y_i)) =  -\lambda n + (\sum_{i=1}^{n}y_i) ln(\lambda) - (\sum_{i=1}^{n}ln(y_i!))$$
+
+Taking the deriviative:
+$$\frac{d}{d\lambda}(ln(f(y))) = -n+(\sum_{i=1}^{n}y_i)\frac{1}{\lambda}$$
+$$0 = -n+(\sum_{i=1}^{n}y_i)*\frac{1}{\lambda}$$
+$$\lambda = (\sum_{i=1}^{n}y_i)*\frac{1}{n}$$
+Aka the mean!
+
+- What is the estimate for this population?
+
+
+```{r, echo=TRUE}
+obs<-c(5,6,7,3,6,5,8,4,4,3)
+mean(obs)
+
+```
+My estimate is 5.1 fish per pond.

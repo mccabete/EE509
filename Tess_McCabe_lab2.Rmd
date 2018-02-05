@@ -2,7 +2,9 @@
 title: "Tess_McCabe_Lab2"
 author: "Tess McCabe"
 date: "1/29/2018"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r, echo= TRUE}
@@ -16,7 +18,7 @@ Because a probability distribution function has to integrate to one. To keep the
 
 *2. What do the second and third arguments to the uniform specify? What are their default values?*
 
-The second and third arguments are the min and max, which are by default set to 0 and 1 respectively. They have to be finite becuase otherwise the PDF would be a line infinitly close to the x axis.
+The second and third arguments are the min and max, which are by default set to 0 and 1 respectively. They have to be finite because otherwise the PDF would be a line infinity close to the x axis.
 
 *3) The Beta has a special case, Beta(1,1) that is equivalent to what other PDF?*
 
@@ -31,7 +33,7 @@ lines(dbeta(p,1,1)) #the special case of beta
 *4) In the first panel, the mean is the same for each line (0.5).  What are the variances? (Hint: Calculate this analytically. Look up the distribution in one of the recommended references.)*
 
 Beta equation: $f(x) = Γ(α + β) xα-1(1 – x)β-1 / (Γ(α) Γ(β))\  for\  0 ≤ x ≤ 1$
-Varience of beta (According to the R help pages): $a*b/((a+b)^2 * (a+b+1))$
+Variance of beta (According to the R help pages): $a*b/((a+b)^2 * (a+b+1))$
 
 ```{r, echo= TRUE}
 a_1<-5
@@ -101,7 +103,172 @@ arith_means
 
 *7) The last two panels compare a normal and a Laplace distribution with the same mean and variance.  How do the two compare?  In particular, compare the difference in the probabilities of extreme events in each distribution.*
 
-The Laplace distribution doesn't converge to the x-axis as quickly as the normal distribution, so the distribution doesn't bias agains extream values as much as the normal distribution. The mean 
+The Laplace distribution doesn't converge to the x-axis as quickly as the normal distribution, so the distribution doesn't bias again ext ream values as much as the normal distribution. The normal distribution is also 
+
+*8) Looking at the 'change variance' figure, how does the variance change as a and r increase? Qualitatively, how does this affect the mode and skew? Quantitatively, how does this affect the median (relative to the mean)?*
+
+As a and r increase, the variance gets bigger. The variance of 20 distribution has a much longer tail than the variance of  1.25 distribution. It also effects the placement of the mode. The larger variance distribution's mode is closer to zero, and the smaller variance distributions have larger modes. The median and mean are closer together for the larger-variance distribution, and farther away from each other for the lower variance distribution. 
 
 ```{r, echo= TRUE}
+
+median_20<-qgamma(0.5,20,4)
+median_20
+
+mean_20<-20/(4^2)
+mean_20
+
+diff<-median_20-mean_20
+diff
+
+median_1.25<-qgamma(0.5,1.25,0.25)
+median_1.25
+
+mean_1.25<-1.25/(0.25^2)
+mean_1.25
+
+diff<-median_1.25-mean_1.25
+diff 
+
+a <- c(20,1.25)
+r <- c(4,0.25)
+plot(x,dgamma(x,20,4),type='l')
+for(i in 1:2){
+  lines(x,dgamma(x,a[i],r[i]),col=i)}
+var = a/r^2
+mean =  a/r
+legend("topright",legend=format(var,digits=3),lty=1,col=1:6)
+abline(v=median_1.25)  # medians straight lines
+abline(v=median_20,col="red")
+abline(v=mean_1.25, lty=2) # means dashed
+abline(v=mean_20,col="red",  lty=2)
+
 ```
+
+*9)  Consider a binomial distribution that has a constant mean, np.  What are the differences in the shape of this distribution if it has a high n and low p vs. a low n and high p?*
+
+A high N and a low p creates a narrower, taller distribution that more quickly converses to the x axis, whereas a low n high p creates a "short squat" distribution that takes the longest to converge to the x axis. 
+
+
+
+
+```{r, echo= TRUE}
+
+## vary probability
+n = c(10, 4, 2)
+p = c(0.1,0.25,0.5)
+plot(x,dbinom(x,n[3],p[3]),type='s')
+for(i in 1:3){
+  lines(x,dbinom(x,n[i],p[i]),col=i,type='s')
+}
+abline(v = n*p,col=1:3,lty=2)
+legend("topright",legend=p,lty=1,col=1:3)
+
+
+
+```
+
+
+*10)  Normal distributions are often applied to count data even though count data can only take on positive integer values.  Is this fair is this to do in these two examples? (i.e. how good is the normal approximation)*
+
+For large enough counts, I don't see why not. Because there's not a huge risk of incorporating values we know we're not going to get, the normal probably works just as well the the Poisson distribution. It's just when the counts are strongly zero biased that you're probably want to strictly exclude the negative values that the normal distribution brings in. 
+```{r, echo=TRUE}
+x <- 0:12
+plot(x,dpois(x,1),type='s')
+lines(x,dpois(x,2),type='s',col=2)
+lines(x,dpois(x,5),type='s',col=3)
+legend("topright",legend=c(1,2,5),lty=1,col=1:3)
+
+x <- 20:80
+plot(x,dpois(x,50),type='s',ylim=c(0,0.08))  	#Poisson with mean 50 (variance = 50)
+lines(x+0.5,dnorm(x,50,sqrt(50)),col=2)		#Normal with mean and variance of 50
+lines(x,dbinom(x,100,0.5),col=3,type='s')		#Binomial with mean 50 (variance = 25)
+legend("topright",legend=c("pois","norm","binom"),col=1:3,lty=1)
+
+plot(x,dbinom(x,100,0.5),type='s',col=3)		#Binomial with mean 50 (variance = 25)
+lines(x+0.5,dnorm(x,50,sqrt(25)),col=2)		#Normal with mean 50 and variance of 25
+lines(x,dpois(x,50),col=1,type='s')			#Poisson with mean 50 (variance = 50)
+legend("topright",legend=c("pois","norm","binom"),col=1:3,lty=1)
+```
+*11) Would the normal be a fair approximation to the Poisson curves for small numbers (the first panel)? How about for the Bionomial for small numbers (earlier panel of figures on the Binomial)?*
+
+No the normal would not be a good fit for smaller values, either for the Poisson or the binomial, because it includes negative values. Also at smaller draws the difference between a continuous and desecrate distribution is more extreme. 
+
+*12) Is the Poisson a good approximation of the Binomial?*
+
+Probably a better approximation than the normal distribution, at least at small values. It has a difference variance structure so "good approximation" really depends on how much you care about that. 
+
+*13) Is it possible to choose the parameters so that the Poisson and Binomial to both have the same mean and  variance?  If so what is this parameterization?*
+
+Well, a property of the Poisson is that the mean is equal to the variance, so the binomial would also have to have an equal mean and variance. If p or n are zero, then the variance and mean are the same (zero), that might not be meaningful. 
+
+$$ \mu = n*p \ \ for\ a \ binomial$$
+$$\sigma^{2}=n*p*(1-p) $$
+$$n*p=n*p*(1-p) $$
+
+```{r, echo=TRUE}
+n<- 0
+
+p<-100
+
+var<-n*p*(1-p)
+var
+mean<-n*p
+mean
+
+plot(x,dbinom(x,1,0),type='s',col=3)		#Binomial with mean 0 (variance = 0)
+lines(x,dpois(x,0),col=1,type='s')			#Poisson with mean 0 (variance = 0)
+legend("topright",legend=c("pois","binom"),col=2:3,lty=1)
+```
+
+```{r, echo=TRUE}
+x <- 0:20
+## negative binomial
+
+## vary size
+plot(x,dnbinom(x,1,0.5),type="s",main="vary size")
+lines(x,dnbinom(x,2,0.5),type="s",col=2)
+lines(x,dnbinom(x,3,0.5),type="s",col=3)
+lines(x,dnbinom(x,5,0.5),type="s",col=4)
+lines(x,dnbinom(x,10,0.5),type="s",col=5)
+legend("topright",legend=c(1,2,3,5,10),col=1:5,lty=1)
+
+## vary probability
+plot(x,dnbinom(x,3,0.5),type="s",main="vary probability")
+lines(x,dnbinom(x,3,0.3),type="s",col=2)
+lines(x,dnbinom(x,3,0.2),type="s",col=3)
+lines(x,dnbinom(x,3,0.1),type="s",col=4)
+legend("topright",legend=c(0.5,0.3,0.2,0.1),col=1:5,lty=1)
+
+## vary variance , alternate parameterization
+mean = 8
+var = c(10,20,30,8)
+size = mean^2/(var-mean)
+plot(x,dnbinom(x,mu=mean,size=size[1]),type="s",ylim=c(0,0.14),main="vary variance")
+lines(x,dnbinom(x,mu=mean,size=size[2]),type="s",col=2)
+lines(x,dnbinom(x,mu=mean,size=size[3]),type="s",col=3)
+#lines(x,dnbinom(x,mu=mean,size=size[4]),type="s",col=5)
+legend('topright',legend=format(c(var,mean),digits=2),col=1:5,lty=1)
+lines(x,dpois(x,mean),col=4,type="s")
+## NB as generalization of pois with inflated variance
+
+## geometric
+plot(x,dgeom(x,0.5),type="s",main="Geometric")
+lines(x,dgeom(x,0.15),type="s",col=2)
+lines(x,dgeom(x,0.05),type="s",col=3)
+lines(x,dnbinom(x,1,0.15),type="s",col=4,lty=2)
+## geometric as special case of NB where size = 1
+```
+
+*14)  In the 'vary size' panel, what are the means of the curves?*
+
+The mean of the binomial is $np$. 
+```{r, echo=TRUE}
+n<-c(1,2,3,5,10)
+p<-rep(0.5,5)
+means<-n*p
+means
+```
+
+*15) In the “vary variance” panel, how does the shape of the Negative Binomial compare to the Poisson?*
+
+The negative binomial can't have the same mean and variance, because that would require deriving by zero. The Poisson is "tall and narrow" compared to the negative binomial. 
