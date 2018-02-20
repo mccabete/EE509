@@ -1,0 +1,260 @@
+---
+title: "Tess_McCabe_lab4"
+author: "Tess McCabe"
+date: "2/12/2018"
+output: html_document
+---
+
+```{r, echo=TRUE}
+
+b <- read.table("data/pinecones.txt",header=TRUE)
+
+str(b)
+summary(b)
+table(b$ring,b$tmt)           ## shows number of trees by ring and treatment
+
+##histogram of cone counts in year 2000
+hist(b$c00,breaks=0:92,probability=TRUE,ylim=c(0,1))
+
+##plot of counts by tree size (x-axis) and CO2 (AMB is black, CO2 is red)
+plot(b$diam,b$c00,col = b$tmt)
+
+
+```
+
+
+$$ L = \prod_{i=1}^{n} Pois \left( y_i \vert g(x_i) \right)$$
+$$g(x_i) = a_0 x_i^2$$
+
+```{r,echo=TRUE}
+dia   <- b$diam       ## tree diameters
+ncone <- b$c00       	## number of cones in 2000
+cones <- (ncone > 0) 	## whether cones are present – this indicates whether tree is mature
+tmt   <- b$tmt       	## treatment (elevated vs ambient)
+
+
+# defining the negative log likelyhood of the model
+
+##' @param a0   unknown parameter (slope of fecundity/size relationship)
+##' @param x    tree diameter at breast height (cm)
+##' @param y    cone counts (integer)
+likFec = function(a0,x,y){
+  g <- a0*x^2               ## expected mean fecundity, g(x),as a function of tree size
+  -sum(dpois(y,g,log=TRUE)) ## negative log likelihood
+}
+
+out.fec <- optimize(likFec,c(0.001,1),x=dia,y=ncone)
+out.fec
+a0 <- out.fec$minimum  ## maximum likelihood parameter estimate
+
+plot(dia,ncone)                    ## raw data scatter plot
+dseq <- seq(1,30,length=300)       ## seq of x values for drawing curve
+lines(dseq,a0*dseq^2,col=3,lwd=3)  ## add fecundity relationship
+```
+
+## Maturation Model
+
+$$Bernoulli \left( m_i \vert \theta(x_i) \right)$$
+
+```{r,echo=TRUE}
+## example of probit
+xseq = seq(0,30,length=200)
+plot(xseq,pnorm(xseq,15,3),type='l')
+
+```
+
+**Task 1**
+
+```{r, echo=TRUE}
+b0 = 5
+b1 = 5
+param = c(b0,b1)
+   
+plot(dia, cones)
+lines(dia, pnorm(dia, mean=b0, sd=b1), type="p", col="red")
+    
+```
+
+**Task 2**
+
+-  Similar to likFec and the models we constructed last week, code up the negative log likelihood for this model as an R function
+
+```{r, echo=TRUE}
+cones[cones==TRUE]<-1
+cones[cones==FALSE]<-0
+
+neg_log_mature<-function(param){
+  b0 = param[1]
+  b1 = param[2]
+  theta<-pnorm(dia,mean=b0, sd=b1)# probit
+  -sum(dbinom(cones,1, prob=theta, log = TRUE)) # Bernulli
+}
+
+neg_log_mature(param)
+plot(-dbinom(cones,1, prob=theta, log = TRUE))
+```
+
+-  Test your function at your initial guess to verify that the function is working
+Use a numerical optimization function to fit your log likelihood to the data. Make to use an optimization that supports multivariate problems (not optimize)
+
+```{r, echo=TRUE}
+vals<-optim(par=param, fn=neg_log_mature) # Produces NaN's but works. 
+vals
+```
+
+##Combined Fecundity and Maturation
+
+Probability of observing cones: 
+$$p(y_i = 1,2,\dotsc) = Bernoulli \left( m = 1 \vert \theta (x_i) \right) Pois \left( y_i \vert g(x_i) \right) $$
+
+Probability of observing no cones: 
+$$p(y_i = 0) = Bernoulli \left( m = 0 \vert \theta (x_i) \right) + Bernoulli \left( m = 1 \vert \theta (x_i) \right) Pois \left( 0 \vert g(x_i) \right) $$
+```{r, echo=TRUE}
+##' @param param   vector of model parameters
+##' @param dia     tree diameter at breast height (cm)
+##' @param ncone   cone counts (integer)
+likfit = function(param,dia,ncone){
+  a0 = param[1]
+  b0 = param[2]
+  b1 = param[3]
+  cones = ncone > 0
+
+  ## trees with cones
+  dia.cone   <- dia[cones > 0]              	    ## find just the trees with cones
+  g.cone     <- a0 * dia.cone^2			              ## Fecundity fnc - g(x)
+  theta.cone <- pnorm(dia.cone,b0,b1,log.p=TRUE) 	## maturation probit - theta(x)
+  prob.cone  <- theta.cone + dpois(ncone[cones],g.cone,log=TRUE) ## lnL with cones
+  
+  ##trees with zero counts 
+  dia.zero   <- dia[cones == 0]         ## find the trees without cones
+  g.zero     <- a0 * dia.zero^2         ## Fecundity fnc - g(x)
+  theta.zero <- pnorm(dia.zero,b0,b1)   	## maturation probit - theta(x)
+  prob.zero  <- log((1-theta.zero) + theta.zero*dpois(0,g.zero)) ## lnL without cones
+
+  return(-sum(prob.cone,prob.zero))     ## combined -lnL
+}
+
+param  <- c(0,0,0)        ## initial guess (update this based on the first two models!)
+likfit(param,dia,ncone)   ## verify that the function works
+out = optim(param,        ## run numerical MLE
+             likfit,
+             lower=c(0.001,10,1),
+             upper=c(1,30,10),
+             method="L-BFGS-B",dia=dia,ncone=ncone)
+out                      ## display results
+a0[1]  = out$par[1]         ## extract parameters for later use in plotting & analysis
+b0[1]  = out$par[2]  # mean
+b1[1]  = out$par[3]  # sd
+lnL[1] = out$value
+n[1]   = length(cones)
+
+```
+
+**Task 3**
+- Make two plots showing fecundity (dia vs ncone) and maturation (dia vs cones) showing both the raw data and the best fit model. For the fecundity plot include two lines, one representing fecundity vs size given maturity, $g(x)$, and the second that is the expected number of cones observed, which combines fecundity and the probability of maturation $g(x) \cdot \theta(x)$
+
+```{r, echo=TRUE}
+ ### Dia vs cones
+
+dseq <- seq(1,30,length=300)
+plot(dia,ncone, xlab= "Diameter",ylab = "Fecundity" ) # Plot from before, fecundity given maturation
+
+      
+lines(dseq,a0*dseq^2,col=3,lwd=3) # Fecundity given maturity
+lines(dseq,(a0*dseq^2)*pnorm(dseq, b0, b1),col=2,lwd=3) # Fecundity and the porbability of maturation
+
+### Maturation
+
+plot(dia, cones)
+lines(dia,pnorm(dia, b0, b1), type= "p", col=2)
+
+
+```
+
+## Effects of Elevated CO2 on Reproduction
+
+```{r, echo=TRUE}
+## Ambient
+dia.amb   = b$diam[tmt=="AMB"]   ## tree diameters
+ncone.amb = b$c00[tmt=="AMB"]    ## number of cones
+
+## Refit for just ambiant
+out.amb = optim(param,likfit,method="L-BFGS-B",
+             lower=c(0.001,10,1),upper=c(1,30,10),dia=dia.amb,ncone=ncone.amb)
+a0[2]  = out.amb$par[1]
+b0[2]  = out.amb$par[2]
+b1[2]  = out.amb$par[3]
+lnL[2] = out.amb$value
+n[2]     = length(cones)
+out.amb
+
+
+```
+
+**Lab Report Task 4**
+- Repeat the analysis we just did but this time fit the model for just the elevated CO2 treatment (tmt == CO2). Save the output to the variable "out.elev" and store the same output values to the third element of the parameter vectors (e.g. a0[3]). Include a table of the values of the parameters in your lab report
+
+```{r, echo=TRUE}
+## Ambient
+dia.CO2   = b$diam[tmt=="CO2"]   ## tree diameters
+ncone.CO2 = b$c00[tmt=="CO2"]    ## number of cones
+
+## Refit for just CO2iant
+out.CO2 = optim(param,likfit,method="L-BFGS-B",
+             lower=c(0.001,10,1),upper=c(1,30,10),dia=dia.CO2,ncone=ncone.CO2)
+a0[3]  = out.CO2$par[1]
+b0[3]  = out.CO2$par[2]
+b1[3]  = out.CO2$par[3]
+lnL[3] = out.CO2$value
+n[2]     = length(cones)
+out.CO2
+
+table<-as.data.frame(cbind(a0,b0,b1))
+rownames(table)<-c("whole dataset", "amb", "CO2")
+table
+
+```
+
+## Model Selection
+
+Likelihood ratio test: 
+```{r, echo=TRUE}
+dev.null <- 2*lnL[1]                  ## null model
+dev.tmt  <- 2*lnL[2] + 2*lnL[3]       ## model with elevated vs ambient CO2 treatment
+LR       <- dev.null - dev.tmt        ## Likelihood ratio
+pval     <- 1-pchisq(LR,3)
+
+LR
+pval
+```
+**Task 5**
+
+Create figures analogous to Task 3 that show the fits for the full model, the ambient-only fit, and the elevated-only fit (i.e. 3 lines per graph, with different colors or symbols for ambient vs elevated data). Based on these graphs, the parameter values, and the likelihood ratio test, answer the following questions:
+
+```{r, echo=TRUE}
+
+### Fecundity plots
+dseq <- seq(1,30,length=300)
+plot(dia,ncone, xlab= "Diameter",ylab = "Fecundity" ) # Plot from before, 
+lines(dseq,(a0[1]*dseq^2)*pnorm(dseq, b0[1], b1[1]),col=2,lwd=3) 
+lines(dseq,(a0[2]*dseq^2)*pnorm(dseq, b0[2], b1[2]),col=3,lwd=3) 
+lines(dseq,(a0[3]*dseq^2)*pnorm(dseq, b0[3], b1[3]),col=4,lwd=3)
+legend(x = "topleft", legend= c("Full datasat/ Null model", "Amb", "Co2" ), fill = c(2,3,4))
+
+### Maturation plots
+plot(dia, cones)
+lines(dia,pnorm(dia, b0[1], b1[1]), type= "p", col=2)
+lines(dia,pnorm(dia, b0[2], b1[2]), type= "p", col=3)
+lines(dia,pnorm(dia, b0[3], b1[3]), type= "p", col=4)
+legend(x = "topleft", legend= c("Full datasat/ Null model", "Amb", "Co2" ), fill = c(2,3,4))
+```
+
+
+1. Does elevated CO2 have an effect on fecundity? (Provide explanation for your answer).
+
+According to this analysis, it does seem like elevated CO2 has some effect on the fecundity-diameter relationship. It looks like elevated CO2 increases the number of pine cones produced at most post 15 cm diameters. The ambient looks lower, and the p value was significant, suggesting that the visible difference is due to more than just chance. 
+
+
+2. Is this effect simply due to there being larger trees in the elevated plots, or does CO2 affect the maturation rate and/or the fecundity of trees (i.e. the cone production at a given tree size)? If there is an effect, in what direction is it?
+
+Looking at the maturation plot, there could be just an increase in maturation rate, but it would be a little one. The lines for CO2 and ambient are right on top of each other until about 15 cm. It could be argued that the 15 cm CO2 begins to diverge from the full model a tiny bit sooner than the ambient, but only a little. It looks like the affect is mostly in likelihood of producing a cone post 15 cm. 
