@@ -80,6 +80,7 @@ lines(dia, pnorm(dia, mean=b0, sd=b1), type="p", col="red")
 -  Similar to likFec and the models we constructed last week, code up the negative log likelihood for this model as an R function
 
 ```{r, echo=TRUE}
+
 cones[cones==TRUE]<-1
 cones[cones==FALSE]<-0
 
@@ -91,7 +92,7 @@ neg_log_mature<-function(param){
 }
 
 neg_log_mature(param)
-plot(-dbinom(cones,1, prob=theta, log = TRUE))
+#plot(-dbinom(cones,1, prob=theta, log = TRUE))
 ```
 
 -  Test your function at your initial guess to verify that the function is working
@@ -113,6 +114,9 @@ $$p(y_i = 0) = Bernoulli \left( m = 0 \vert \theta (x_i) \right) + Bernoulli \le
 ##' @param param   vector of model parameters
 ##' @param dia     tree diameter at breast height (cm)
 ##' @param ncone   cone counts (integer)
+lnL<-c()
+n<-c()
+
 likfit = function(param,dia,ncone){
   a0 = param[1]
   b0 = param[2]
