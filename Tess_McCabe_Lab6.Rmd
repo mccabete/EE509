@@ -11,5 +11,562 @@ library(coda)
 ```
 
 
+Recall from lecture 13 and chapter 7.4 of the textbook that the standard Bayesian regression model assumes a Normal likelihood, a Normal prior on the regression parameters, and an Inverse Gamma prior on the variance.
+
 $$P(b,\sigma^2 \vert X, y) \propto N_n(y \vert Xb,\sigma^2 I) N_p(b \vert b_0, V_b) IG(\sigma^2 \vert s_1,s_2)$$
 
+Within the Gibbs sampler we will be iteratively sampling from each of the conditional posterior distributions:
+
+The regression parameters given the variance
+
+$$P(b \vert \sigma^2, X, y) \propto N_n(y \vert Xb,\sigma^2 I) N_p(b \vert b_0, V_b)$$
+
+The variance given the regression parameters
+
+$$P(\sigma^2 \vert b, X, y) \propto N_p(b \vert b_0, V_b) IG(\sigma^2 \vert s_1,s_2)$$
+
+## Generate the data
+```{r, echo = TRUE}
+### Part 1: simulate data from a known model
+n <- 100  			## define the sample size
+b0 <- 10				## define the intercept
+b1 <- 2					## define the slope
+beta <- matrix(c(b0,b1),2,1)		## put “true” regression parameters in a matrix
+sigma <- 4				## define the standard deviation
+
+#### Part 1.1: simulate the covariate 
+
+x1 <- runif(n,0,20)
+x <- cbind(rep(1,n),x1)
+y <- rnorm(n,x%*%beta,sigma) # generates the responce variable
+
+### Part 1.2 : view your work
+
+plot(x1,y)
+abline(b0,b1,col=2,lwd=3) # Beautiful 'data'
+
+data <- list(x = x1, y = y, n = n)
+
+```
+
+
+## Specify Model
+
+```{r, echo= TRUE}
+
+univariate_regression <- "
+model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+  prec ~ dgamma(s1,s2)  ## prior precision
+
+  for(i in 1:n){
+	  mu[i] <- beta[1] + beta[2]*x[i]   	## process model
+	  y[i]  ~ dnorm(mu[i],prec)		## data model
+  }
+}
+"
+```
+
+## Specify Priors
+
+```{r, echo= TRUE}
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+data$s1 <- 0.1                    ## error prior n/2
+data$s2 <- 0.1                    ## error prior SS/2
+```
+
+## Specify IC
+
+```{r, echo=TRUE}
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5), prec = runif(1,1/100,1/20))
+}
+```
+
+## MCMC loop
+
+```{r, echo=TRUE}
+j.model   <- jags.model(file = textConnection(univariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta","prec"),
+                                n.iter = 2000)
+```
+
+## Evaluation
+```{r, echo=TRUE}
+## convert to matrix
+var.mat      <- as.matrix(var.out)
+
+## Pairwise scatter plots & correlation
+pairs(var.mat)	## pairs plot to evaluate parameter correlation
+cor(var.mat)
+
+```
+
+## Lab Report Task 1
+
+- Evaluate the MCMC chain for convergence. Include relevant diagnostics and plots. Determine and remove burnin e.g. var.burn <- window(var.out,start=burnin)
+
+```{r, echo=TRUE}
+gelman.plot(var.out)
+
+acfplot(var.out)
+effectiveSize(var.out) # 6000
+
+cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75,0.975)) # Eyeballing this, looks like I'm pretty safe after 1000 iteractions. 
+var.burn <- window(var.out,start=1000)
+
+# Retrying effective sample size
+effectiveSize(var.burn) 
+
+```
+- Report parameter summary table and plot marginal distributions
+
+```{r, echo=TRUE}
+summary(var.burn)
+
+# Beta[1] by precip
+plot(var.out)
+
+```
+Compare the summary statistics for the Bayesian regression model to those from the classical regression: summary(lm( y ~ x1 )). This should include a comparison of the means and uncertainties of all 3 model parameters
+```{r, echo=TRUE}
+summary(lm( y ~ x1 )) # classsical regression. 
+summary(var.burn) # baysian regression. Very similar up to three decimal places. 
+
+
+```
+
+- Compare the fit parameters to the “true” parameters we used to generate the pseudo-data. How well does the statistical analysis recover the true model?
+
+In this case, the baysian analysis performed slightly better than the regression (the parameter values were closer to the true values than the classical regression). Both statstical analysis were very close, however. Depending on how you define significant digets, it's correct. 
+
+## Multiple Regression
+
+```{r, echo = TRUE}
+#### Make Sudo data
+
+n <- 250  			## define the sample size
+b0 <- 10				## define the intercept
+b1 <- 2					## define slope1
+b2 <- -4        ## define slope2
+b3 <- 0.5       ## define interaction
+beta <- matrix(c(b0,b1,b2,b3),4,1)		## put “true” regression parameters in a matrix
+sigma <- 4				## define the standard deviation
+x1 <- runif(n,0,20)
+x2 <- runif(n,0,15)
+x_1 <- cbind(rep(1,n),x1,x2,x1*x2) #
+
+y <- rnorm(n,x%*%beta,sigma) # responce variable
+plot(x1,y)
+plot(x2,y)
+
+#x[4,1]
+
+```
+
+## Lab Report Task 2
+- Show the JAGS and R code used.
+
+```{r, echo= TRUE}
+multivariate_regression <- "model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+  prec ~ dgamma(s1,s2)  ## prior precision
+
+  for(i in 1:n){
+	  mu[i] <- beta[1] + beta[2]*x[i] + beta[3]*x[i] +beta[4]*x[i]  	## process model
+	  y[i]  ~ dnorm(mu[i],prec)		## data model
+  }
+}
+"
+
+## Set up priors
+data$b0 <- as.vector(c(0,0,0,0))  ## regression beta means
+data$Vb <- solve(diag(10000,4))   ## regression beta precisions
+
+data$s1 <- 0.1                    ## error prior n/2
+data$s2 <- 0.1                    ## error prior SS/2
+
+## Set up chains + MCMC
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = c(2, 1,2,1), prec = runif(1,1/100,1/20))
+}
+
+## Run multivariate model
+j.model   <- jags.model(file = textConnection(multivariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta","prec"),
+                                n.iter = 7000)
+
+```
+
+
+
+- Include relevant convergence diagnostics and plots.
+```{r, echo=TRUE}
+gelman.plot(var.out)
+
+var.temp<-as.matrix(var.out)
+
+acfplot(var.out)
+effectiveSize(var.out)
+
+cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75,0.975)) # Eyeballing this time , still looks like I'm pretty safe after 1000 iteractions. 
+var.burn <-var.temp[1000:dim(var.temp)[1],]
+
+# Retrying effective sample size
+effectiveSize(var.burn) # looks good
+
+```
+- Report parameter summary table.
+
+```{r, echo=TRUE}
+summary(var.burn)
+
+
+```
+- Plot marginal and pairwise joint distributions. Indicate 'true' parameters on the plots
+
+```{r, echo=TRUE}
+# Marginal
+plot(var.burn)
+
+#### Joint
+## True values
+var.use<-as.matrix(var.burn)
+truth_beta2<-rep(b1, length(var.use[,1]))
+truth_beta3<-rep(b2, length(var.use[,1]))
+truth_beta1<-rep(b0, length(var.use[,1]))
+truth_beta4<-rep(b3, length(var.use[,1]))
+
+plot( var.use[,1], var.use[,2], ylab= "beta[2]", xlab= "beta[1]")
+lines(truth_beta1, truth_beta2, col="red", type = "pch")
+
+plot( var.use[,1], var.use[,3], ylab= "beta[3]", xlab= "beta[1]")
+lines(truth_beta1, truth_beta3, col="red", type = "pch")
+
+plot( var.use[,1], var.use[,4], ylab= "beta[4]", xlab= "beta[1]")
+lines(truth_beta1, truth_beta4, col="red", type = "pch")
+
+plot( var.use[,2], var.use[,3], ylab= "beta[3]", xlab= "beta[2]")
+lines(truth_beta2, truth_beta3, col="red", type = "pch")
+
+plot( var.use[,2], var.use[,4], ylab= "beta[4]", xlab= "beta[2]")
+lines(truth_beta2, truth_beta4, col="red", type = "pch")
+
+plot( var.use[,3], var.use[,4], ylab= "beta[4]", xlab= "beta[3]")
+lines(truth_beta3, truth_beta4, col="red", type = "pch")
+
+```
+- Compare the fit parameters to the “true” parameters we used to generate the pseudo-data. How well does the statistical analysis recover the true model?
+
+```{r, echo=TRUE}
+
+summary(var.burn)
+```
+The model was decent for recovering the intercept, but not as good at recovering the slope. The mean slope was consistantly off, althought the covariation is closer. That the intercept was more easily modeled than the slopes makes sence, as it is dependant on less infomration than a slope. All the "true" values were within the 25% to 75% quartiles. 
+
+## Regression Credible intervals
+
+```{r, echo= TRUE}
+
+xpred <- 0:20
+plot(x1,y)
+for(i in 1:10){
+  lines(xpred, var.mat[i,"beta[1]"] + var.mat[i,"beta[2]"]*xpred)
+}
+
+
+## credible and prediction intervals
+nsamp <- 5000
+samp <- sample.int(nrow(var.mat),nsamp)
+xpred <- 0:20  					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+
+
+## Loop for calculateing the expected value of x and y for each pair of regression parameters + random error. 
+
+for(g in seq_len(nsamp)){
+  theta = var.mat[samp[g],]
+  ycred[g,] <- theta["beta[1]"] + theta["beta[2]"]*xpred
+  ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
+}
+
+## Calculate a 5% quantile
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi <- apply(ypred,2,quantile,c(0.025,0.975))		## prediction interval
+
+plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
+lines(xpred,ci[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3)	## median
+lines(xpred,ci[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi[2,],col=4,lty=2)	## upper PI
+abline(b0,b1)				## true model
+```
+
+## Power analysis
+
+Lab Report Task 3: Power Analysis
+An important question in experimental design is what sample size is required in order to estimate model parameters accurately and to the required degree of precision. To take a rough first pass at this I'd like you to re-run this analysis two more times with a sample size of n=30 the first time and n=5 the second time. (note: I'll be asking you to make comparisons between the models so you'll want to take a look at what information you'll need to save from each run before re-running the model) For each run check the MCMC diagnostics and then report. 
+
+## n=30
+```{r, echo = TRUE}
+### Part 1: simulate data from a known model
+n <- 30 			## define the sample size
+b0 <- 10				## define the intercept
+b1 <- 2					## define the slope
+beta <- matrix(c(b0,b1),2,1)		## put “true” regression parameters in a matrix
+sigma <- 4				## define the standard deviation
+
+#### Part 1.1: simulate the covariate 
+
+x1 <- runif(n,0,20)
+x <- cbind(rep(1,n),x1)
+y <- rnorm(n,x%*%beta,sigma) # generates the responce variable
+
+### Part 1.2 : view your work
+
+data <- list(x = x1, y = y, n = n)
+
+```
+
+```{r, echo= TRUE}
+
+univariate_regression <- "
+model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+  prec ~ dgamma(s1,s2)  ## prior precision
+
+  for(i in 1:n){
+	  mu[i] <- beta[1] + beta[2]*x[i]   	## process model
+	  y[i]  ~ dnorm(mu[i],prec)		## data model
+  }
+}
+"
+```
+
+```{r, echo= TRUE}
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+data$s1 <- 0.1                    ## error prior n/2
+data$s2 <- 0.1                    ## error prior SS/2
+```
+
+
+```{r, echo=TRUE}
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5), prec = runif(1,1/100,1/20))
+}
+```
+
+
+```{r, echo=TRUE}
+j.model.30   <- jags.model(file = textConnection(univariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out.30   <- coda.samples (model = j.model.30,
+                            variable.names = c("beta","prec"),
+                                n.iter = 7000)
+```
+
+
+## n = 5
+
+```{r, echo = TRUE}
+### Part 1: simulate data from a known model
+n <- 5 			## define the sample size
+b0 <- 10				## define the intercept
+b1 <- 2					## define the slope
+beta <- matrix(c(b0,b1),2,1)		## put “true” regression parameters in a matrix
+sigma <- 4				## define the standard deviation
+
+#### Part 1.1: simulate the covariate 
+
+x1 <- runif(n,0,20)
+x <- cbind(rep(1,n),x1)
+y <- rnorm(n,x%*%beta,sigma) # generates the responce variable
+
+### Part 1.2 : view your work
+
+data <- list(x = x1, y = y, n = n)
+
+```
+
+```{r, echo= TRUE}
+
+univariate_regression <- "
+model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+  prec ~ dgamma(s1,s2)  ## prior precision
+
+  for(i in 1:n){
+	  mu[i] <- beta[1] + beta[2]*x[i]   	## process model
+	  y[i]  ~ dnorm(mu[i],prec)		## data model
+  }
+}
+"
+```
+
+```{r, echo= TRUE}
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+data$s1 <- 0.1                    ## error prior n/2
+data$s2 <- 0.1                    ## error prior SS/2
+```
+
+
+```{r, echo=TRUE}
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5), prec = runif(1,1/100,1/20))
+}
+```
+
+
+```{r, echo=TRUE}
+j.model.5   <- jags.model(file = textConnection(univariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out.5  <- coda.samples (model = j.model.5,
+                            variable.names = c("beta","prec"),
+                                n.iter = 7000)
+```
+
+
+- Convergence diagnostics
+```{r, echo=TRUE}
+gelman.plot(var.out.5)
+gelman.plot(var.out.30)
+
+cumuplot(var.out.5) # some serious texture 
+cumuplot(var.out.30) #  I'm going to cut it off after 3000 -could even go farther for var.out.5
+var.temp.5<-as.matrix(var.out.5)
+var.temp.30<-as.matrix(var.out.30)
+
+
+var.burn.5<-var.temp.5[3000:dim(var.temp.5)[1],]
+var.burn.30<-var.temp.30[3000:dim(var.temp.30)[1],]
+
+```
+
+- A summary table of parameter estimates
+
+```{r, echo= TRUE}
+summary(var.burn.5)
+summary(var.burn.30) # Smaller bounds, similar means + medians
+```
+- A plot with the pseudo-data, the true model, the 95% credible interval on the model, and the 95% prediction interval.
+
+```{r, echo=TRUE}
+
+
+xpred <- 0:5
+#plot(x1,y)
+#for(i in 1:10){
+ # lines(xpred, var.temp.5[i,"beta[1]"] + var.temp.5[i,"beta[2]"]*xpred)
+#}
+
+## credible and prediction intervals
+nsamp <- length(xpred)
+samp <- sample.int(nrow(var.temp.5),nsamp)
+xpred <- order(x1)  					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+
+for(g in seq_len(nsamp)){
+  theta = var.temp.5[samp[g],]
+  ycred[g,] <- theta["beta[1]"] + theta["beta[2]"]*xpred
+  ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
+}
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi <- apply(ypred,2,quantile,c(0.025,0.975))
+		## prediction interval
+
+plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
+abline(b0,b1,col=2,lwd=3) 
+title("N= 5 case")
+
+lines(xpred,ci[1,],col=3,lty=2, type = "p")	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3, type = "p")	## median
+lines(xpred,ci[3,],col=3,lty=2, type = "p")	## upper CI
+lines(xpred,pi[1,],col=4,lty=2, type = "p")	## lower PI
+lines(xpred,pi[2,],col=4,lty=2, type = "p")	## upper PI
+```
+
+```{r, echo= TRUE}
+n=30
+b0 <- 10				## define the intercept
+b1 <- 2					## define the slope
+x1 <- runif(n,0,20)
+y <- rnorm(n,x%*%beta,sigma)
+
+## credible and prediction intervals
+nsamp <- length(x1)
+samp <- sample.int(nrow(var.temp.5),nsamp)
+xpred <- x1					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+
+for(g in seq_len(nsamp)){
+  theta = var.temp.5[samp[g],]
+  ycred[g,] <- theta["beta[1]"] + theta["beta[2]"]*xpred
+  ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
+}
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi <- apply(ypred,2,quantile,c(0.025,0.975))
+		## prediction interval
+
+plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
+abline(b0,b1,col=2,lwd=3) 
+title("N= 30 case")
+
+lines(xpred,ci[1,],col=3,lty=2, type = "p")	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3, type = "p")	## median
+lines(xpred,ci[3,],col=3,lty=2, type = "p")	## upper CI
+lines(xpred,pi[1,],col=4,lty=2, type = "p")	## lower PI
+lines(xpred,pi[2,],col=4,lty=2, type = "p")	## upper PI
+```
+
+*Overall also provide the following:*
+
+- Plots showing how the estimate of the parameter mean and the 95% CI around that mean changes with sample size. Sample size should be on the x-axis on a log scale. Make plots for each of the 3 parameters
+- Describe how sample size affects the ability to estimate the true model parameters. Does the 95% CI or PI ever fail to encompass the true model? How does the width of the CI change as a function of sample size?
+- What is the (approximate) minimum sample size that would be required to reject the hypothesis that the slope of this line is 3/2 with 95% confidence.
