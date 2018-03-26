@@ -1,0 +1,462 @@
+---
+title: "Tess_McCabe_Lab7"
+author: "Tess McCabe"
+date: "3/12/2018"
+output: html_document
+---
+
+## Model Specification
+
+Process Model $$\mu_i = \beta_0 + \beta_1 {{L_i}\over{\theta + L_i}} $$
+Data Model $$y_i \sim N(\mu_i,\sigma^2)$$
+
+Things that Make our life easier $$z_i = {{L_i}\over{\theta + L_i}}$$
+
+Then the rest of the model takes on the linear form
+
+$$\mu_i = \beta_0 + \beta_1 z_i$$
+
+Full Posterior
+$$p(\beta,\theta,\sigma^2 \vert y, L) \propto N_n \left( y \vert \beta_0 + \beta_1 {{L_i}\over{\theta + L_i}} , \sigma^2 \right) N_2(\beta \vert beta0, V_b) IG(\sigma^2 \vert s_1,s_2) Beta(\theta \vert a,b)$$
+
+## Set up
+
+```{r, echo= TRUE}
+load("data/Lab7.RData")
+library(mvtnorm)
+library(coda)
+library(rjags)
+
+```
+
+
+
+## Lab report Task 1
+
+A) Plot the data (growth vs light) 
+B) Determine sensible initial conditions for the process model and add a plot of this curve to the data plot. Variables to define are the regression parameter vector “beta”, the variance “sg”, and the half saturation “theta”.
+
+```{r, echo= TRUE}
+## Determining sensible intitial conditions
+theta=1
+sg=50
+beta=c(0,100)
+
+plot(L, grow)
+z<-rep(NA, length(L))
+
+for( i in 1:length(L)){
+  z[i]<-L[i]/(L[i]+theta)
+}
+
+plot(grow, L )
+lines(beta[1] + beta[2]*z, L, type= "p", col= "red")
+
+
+## Priors
+b0 <- as.vector(c(0,0))
+vinvert <- solve(diag(1000,2))
+s1 <- 0.1
+s2 <- 0.1
+
+# Beta Priors
+
+a1 = 1.91
+a2 = 10.17
+
+# Matrix Product of V and b0
+Vb <- vinvert %*% b0
+
+##storage for MCMC
+ngibbs <- 10    			## number of updates
+bgibbs <- matrix(0.0,nrow=ngibbs,ncol=2) 	## storage for beta
+sgibbs <- rep(sg,ngibbs)			## storage for sigma2
+tgibbs <- rep(theta,ngibbs)   ## storage for theta
+
+## Definitions fo rinitial conditions
+sinv = 1/sg
+n <- length(L)
+z <- L/(L+theta)
+X <- cbind(rep(1,n),z)
+
+## Making the Jump distribution truncated normal function
+dtnorm <- function(x,mu,sd){
+  y = dnorm(x,mu,sd,log=TRUE)-log(pnorm(1,mu,sd)-pnorm(0,mu,sd))
+  y[x<0 | x > 1] = -Inf
+  return(y)
+}
+xseq = seq(-0.5,1,length=100)
+plot(xseq,exp(dtnorm(xseq,0.25,0.3)),type='l')
+lines(xseq,dnorm(xseq,0.25,0.3),col=2)
+
+# Implimenting the "truncated" part of the truncated normal
+rtnorm <- function(n,mu,sd){
+  x <- rnorm(n,mu,sd)
+  sel <- which(x < 0 | x > 1)
+  while(length(sel)> 0){
+    x[sel] <- rnorm(length(sel),mu,sd)
+    sel <- which(x < 0 | x > 1)
+  }
+  return(x)
+}
+JumpSD <- 0.03
+```
+
+
+## MCMC loop
+
+*Beta*
+Recall from lecture 13 and from Section 7.4 in the textbook that conditional posterior for the regression parameters
+
+$$P(b \vert \sigma^2, X, y) \propto N_n(y \vert Xb,\sigma^2 I) N_p(b \vert b_0, V_b)$$
+
+has a multivariate normal posterior that takes on the form
+
+$$p(b \vert \sigma^2, X, y) \propto N_p(b \vert Vv , V)$$
+
+where
+
+$$V^{-1} = \sigma^{-2} X^T X + V_b^{-1}$$ $$v = \sigma^{-2} X^t y + V_b^{-1} b_0$$
+
+We can implement this sampler in R as
+
+```{r, echo= TRUE}
+## sample regression parameters
+  bigV    <- solve(sinv*crossprod(X) + vinvert)
+  littlev <- sinv*crossprod(X,grow) + Vb
+  b <- t(rmvnorm(1,bigV %*% littlev,bigV))
+```
+
+*Sigma*
+Next lets look at the sampler for the variance term, which has a posterior distribution
+
+$$P(\sigma^2 \vert b, X, y) \propto N_n(y \vert Xb,\sigma^2 I) IG(\sigma^2 \vert s_1,s_2)$$
+
+that takes on an Inverse Gamma posterior
+
+$$IG(\sigma^2 \vert u_1,u_2) \propto \left( \sigma^2 \right)^{-(u_1+1)}exp \left[ -{u_2}\over{\sigma^2} \right]$$
+
+where $u_1 = s_1 + n/2$ and $u_2 = s_2 + {{1}\over{2}}(y-Xb)^T(y-Xb)$
+
+We can implement this in R as
+
+```{r, echo= TRUE}
+## sample variance
+  u1 <- s1 + n/2
+  u2 <- s2 + 0.5*crossprod(grow-X%*%b)
+  sinv <- rgamma(1,u1,u2)
+  sg <- 1/sinv
+```
+
+
+*Theta*
+
+
+The third section in the MCMC, which samples for theta, requires a way of sampling from the following conditional distribution:
+
+$$p(\theta \vert \beta,\sigma^2, y, L) \propto N_n \left( y \vert \beta_0 + \beta_1 {{L_i}\over{\theta + L_i}} , \sigma^2 \right) Beta(\theta \vert a,b)$$
+
+This conditional posterior is based on selecting the terms from the full posterior (above) that include theta. Since this clearly a non-standard distribution we will sample from it using Metropolis-Hasting. We will be using the Metropolis-Hastings algorithm rather than the simpler Metropolis because our truncated Normal distribution is non-symmetric.
+
+```{r, echo= TRUE}
+##theta
+  tnew <- rtnorm(1,theta,JumpSD)  		##propose new theta
+  znew <- L/(L+tnew)					## calculate new z
+  Xnew <- cbind(rep(1,n),znew)				## calculate new X
+  anum <- dmvnorm(grow,Xnew%*%b,diag(sg,n),log=TRUE) + 	##likelihood
+	        dbeta(tnew,a1,a2,log=TRUE)			##prior
+  jnum <- dtnorm(tnew,theta,JumpSD)				##jump
+  aden <- dmvnorm(grow,X%*%b,diag(sg,n),log=TRUE) +	##likelihood
+		      dbeta(theta,a1,a2,log=TRUE)			##prior
+  jden <- dtnorm(theta,tnew,JumpSD)				##jump
+  a <- exp((anum-jnum)-(aden-jden))			## acceptance criteria
+  if(a > runif(1)){					## accept with probability a
+    theta <- tnew						## update theta if step accepted
+    X <- Xnew						## update X if step accepted
+  }
+```
+
+In the first line of this code we propose a new theta value based on the jump distribution centered on the current value (theta) and with the specified jump standard deviation (JumpSD). The next two lines define two variables used to simplify the calculation of the likelihood. The next three lines calculate the log posterior probability of the new theta, anew, and the log jump probability of jumping to that value from the current theta, jnum. The following three lines calculate the equivalent probabilities for the current value of theta. Finally, we calculate $a$
+
+$$a = {{p(\theta^* \vert y) J(\theta^* \vert \theta^c)}\over{p(\theta^c \vert y) J(\theta^c \vert \theta^*)}}$$
+
+This calculation is first done in the log domain and then converted back to the linear domain using the exponential. In the last bit of code we decide if we accept or reject the proposed step based on a random uniform draw from 0 to 1. If a is greater than this value then the step is accepted and we replace the current values of theta and X with the proposed values. If a is > 1 then the step is always accepted.
+
+```{r, echo= TRUE}
+
+## Gibbs loop
+nchain <- 3
+output.beta<-as.mcmc.list(as.mcmc(NA))
+output.var<-as.mcmc.list(as.mcmc(NA))
+output.theta<-as.mcmc.list(as.mcmc(NA))
+ngibbs <- 10000
+a_accept<-0
+
+for(l in 1:nchain){
+
+  bgibbs <- matrix(0.0,nrow=ngibbs,ncol=2) 	## storage for beta
+  sgibbs <- rep(sg,ngibbs)			## storage for sigma2
+  tgibbs <- rep(theta,ngibbs)   ## storage for theta
+for(g in 1:ngibbs){
+
+   			## number of updates
+
+
+
+  ## sample regression parameters
+  bigV    <- solve(sinv*crossprod(X) + vinvert)
+  littlev <- sinv*crossprod(X,grow) + Vb
+  b <- t(rmvnorm(1,bigV %*% littlev,bigV))
+
+  ## sample variance
+ u1 <- s1 + n/2
+  u2 <- s2 + 0.5*crossprod(grow-X%*%b)
+  sinv <- rgamma(1,u1,u2)
+  sg <- 1/sinv
+
+  ## Sample theta
+ tnew <- rtnorm(1,theta,JumpSD)  		##propose new theta
+  znew <- L/(L+tnew)					## calculate new z
+  Xnew <- cbind(rep(1,n),znew)				## calculate new X
+  anum <- dmvnorm(grow,Xnew%*%b,diag(sg,n),log=TRUE) + 	##likelihood
+	        dbeta(tnew,a1,a2,log=TRUE)			##prior
+  jnum <- dtnorm(tnew,theta,JumpSD)				##jump
+  aden <- dmvnorm(grow,X%*%b,diag(sg,n),log=TRUE) +	##likelihood
+		      dbeta(theta,a1,a2,log=TRUE)			##prior
+  jden <- dtnorm(theta,tnew,JumpSD)				##jump
+  a <- exp((anum-jnum)-(aden-jden))			## acceptance criteria
+  if(a > runif(1)){					## accept with probability a
+    theta <- tnew						## update theta if step accepted
+    X <- Xnew						## update X if step accepted
+    a_accept<-a_accept+1
+  }
+    
+  ## storage
+  bgibbs[g,] <- b  ## store the current value of beta vector
+  sgibbs[g]  <- sg	## store the current value of the variance
+  tgibbs[g]  <- theta
+  
+  
+  
+  if(g %%100 == 0) print(g)	##counter to show how many steps have been performed
+}
+
+  
+  bgibbs<-as.mcmc(bgibbs)
+  sgibbs<-as.mcmc(sgibbs)
+  tgibbs<-as.mcmc(tgibbs)
+  
+ a_rate<-a_accept/(ngibbs*nchain) 
+output.beta[l]<-as.mcmc.list(bgibbs)
+output.var[l]<-as.mcmc.list(sgibbs)
+output.theta[l]<-as.mcmc.list(tgibbs)
+
+}
+```
+
+## Lab Report Task 2
+
+- A parameter summary table
+```{r, echo= TRUE}
+
+
+summary(output.beta)
+summary(output.theta)
+summary(output.var)
+
+```
+- History and density plots
+```{r, echo= TRUE}
+plot(output.beta)
+plot(output.theta)
+plot(output.var)
+
+coda::gelman.plot(output.beta)
+coda::gelman.plot(output.theta)
+coda::gelman.plot(output.var) ## Seems to be good past 2000 for all of them.
+
+burn.beta<-window(output.beta, start =2000)
+burn.theta<-window(output.theta, start =2000)
+burn.var<-window(output.var, start =2000)
+
+## Double checking my burn-in
+effectiveSize(burn.beta) # Kinda small for one of beta. Took a really long time to run as is thouhg. 
+effectiveSize(burn.theta)
+effectiveSize(burn.var)
+
+```
+- Record and justify the burn-in and thin values you used
+
+
+D) Report the different JumpSD that you tried, the acceptance rate achieved with each, and the value you used for your final run
+
+```{r, echo= TRUE}
+JumpSD_tries<-c(0.1,0.01, 0.05,0.03)
+a_rate_tries<-c(0.157, 0.691, 0.3, 0.409)
+
+```
+
+
+## Evaluation
+
+```{r, echo= TRUE}
+## credible and prediction intervals
+xpred <- seq(0,1,length=30)
+npred <- length(xpred)
+ypred <- matrix(NA,nrow=ngibbs,ncol=npred)
+ycred <- matrix(NA,nrow=ngibbs,ncol=npred)
+
+for(g in 1:ngibbs){
+  Ey <- bgibbs[g,1] + bgibbs[g,2] * xpred/(xpred + tgibbs[g])
+  ycred[g,] <- Ey
+  ypred[g,] <- rnorm(npred,Ey,sqrt(sgibbs[g]))
+}
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))
+pi <- apply(ypred,2,quantile,c(0.025,0.975))
+
+plot(L,grow)
+lines(xpred,ci[2,],col=3,lwd=2)  ## median model
+lines(xpred,ci[1,],col=3,lty=2)	## model CI
+lines(xpred,ci[3,],col=3,lty=2)
+lines(xpred,pi[1,],col=4,lty=2)	## model PI
+lines(xpred,pi[2,],col=4,lty=2)
+
+```
+
+## Lab report task 3
+
+
+```{r, echo=TRUE}
+
+```
+
+E) Implement the Michaelis-Menton model in JAGS based on the univariate regression code from Lab 6. This only requires adding one line (specify the prior on theta) and modifying another line (change the process model). Run this model and then include the following in your lab report:
+
+- JAGS code
+
+## Specify Model
+
+```{r, echo= TRUE}
+
+univariate_regression <- "
+model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+  prec ~ dgamma(s1,s2)  ## prior precision
+  theta ~ dbeta(a1,a2)
+
+  for(i in 1:n){
+    z[i]<-x[i]/(theta+x[i])
+	  mu[i] <- beta[1] + beta[2]*z[i]   	## process model
+	  y[i]  ~ dnorm(mu[i],prec)		## data model
+  }
+}
+"
+```
+
+ *Specify Priors*
+
+```{r, echo= TRUE}
+## specify priors
+data<-list()
+
+data <- list(x = grow, y = L, n = length(L))
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+data$s1 <- 0.1                    ## error prior n/2
+data$s2 <- 0.1                    ## error prior SS/2
+data$a1<-1.91                     ## priors on theta
+data$a2<-10.17
+
+```
+
+*Specify IC*
+
+```{r, echo=TRUE}
+## initial conditions
+nchain = 3
+inits <- list()
+
+theta=1
+sg=50
+beta=c(0,100)
+
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,100), prec = 1/50)
+}
+```
+
+*MCMC loop*
+
+```{r, echo=TRUE}
+j.model   <- jags.model(file = textConnection(univariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta","prec", "theta"),
+                                n.iter = 10000)
+var.mat      <- as.matrix(var.out)
+
+```
+
+- Posterior history plot, density plot, burn-in, and thin
+
+```{r, echo=TRUE}
+
+plot(var.out)
+
+coda::gelman.plot(var.out)# Looks like post 3000 safe. 
+
+var.burn<-window(var.out, start =3000)
+
+## Double checking my burn-in
+effectiveSize(var.burn) # Fine
+
+```
+
+
+- Posterior pairs scatter plots and correlations
+```{r, echo=TRUE}
+## Pairwise scatter plots & correlation
+var.mat<-as.matrix(var.burn, header=TRUE)
+pairs(var.mat)	## pairs plot to evaluate parameter correlation
+cor(var.mat)
+
+```
+- Parameter summary table (make sure you have an adequate number of posterior samples)
+
+```{r, echo=TRUE}
+summary(var.burn)
+```
+- Model credible interval and predictive interval plots
+
+```{r, echo=TRUE}
+xpred <- seq(0,1,length=50)
+npred <- length(xpred)
+ypred <- matrix(NA,nrow=ngibbs,ncol=npred)
+ycred <- matrix(NA,nrow=ngibbs,ncol=npred)
+
+for(ii in 1:ngibbs){
+  Ey <- var.mat[ii,1] + var.mat[ii,2] * xpred/(xpred +var.mat[ii,4])
+  ycred[ii,] <- Ey
+  ypred[ii,] <- rnorm(npred,Ey,sqrt(var.mat[ii, 3]))
+}
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))
+pi <- apply(ypred,2,quantile,c(0.025,0.975))
+
+plot(L,grow) ## I know there's an error somewhere in here, I just can't for the life of me find it. 
+lines(xpred,ci[2,],col=3,lwd=2, xlim=c(min(L), max(L)))  ## median model
+lines(xpred,ci[1,],col=3,lty=2, xlim=c(min(L), max(L)))	## model CI
+lines(xpred,ci[3,],col=3,lty=2, xlim=c(min(L), max(L)))
+lines(xpred,pi[1,],col=4,lty=2, xlim=c(min(L), max(L)))	## model PI
+lines(xpred,pi[2,],col=4,lty=2, xlim=c(min(L), max(L)))
+  
+```
+
+
+F) Compare the R and JAGS outputs. Make sure you can match up the plots and statistics made in one with the equivalent plots/statistics from the other. Are any of the estimates substantially different?
+
+Yes. They are substantially different. In the case of the second beta variable (the one that didn't have the very high effective sample size in the hand-made mcmc), the quantiles don't even overlap. The SD for the hand-made MCMC was half of that of the JAGS MCMC. Theta, while different, was within the 95th quantile range. Precision also didn't overlap in terms of quantiles. Part of this may be because I should have run more iterations in my hand-tuned MCMC. I decided against it mostly because I felt like it was going too slowly on my computer. I also could have tuned my acceptance rate more elegantly, although that would have required more sophisticated techniques, because I was already pretty pleased with my acceptance rate of about 0.4.  
+

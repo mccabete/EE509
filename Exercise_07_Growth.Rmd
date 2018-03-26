@@ -55,7 +55,8 @@ As in Lab 6, the first section of R code is used to set up the analysis
 **1) Load Data**: The data for this analysis is stored in binary Rdata format.  There are two variables defined: “L” is the light level (0-1) and “grow” is the height growth rate (cm/yr).
 
 ```{r}
-load("data/Lab7.RData")
+#load("data/Lab7.RData")
+#install.packages("mvtnorm")
 library(mvtnorm)
 ```
 
@@ -107,13 +108,16 @@ tgibbs <- rep(theta,ngibbs)   ## storage for theta
 ```
 
 
-**4) Specify Initial Conditions:** Use the values defined in Task 1B.  In addition you'll want to precompute z and X and define the sample size n.
+**4) Specify Initial Conditions:** 
+Use the values defined in Task 1B.  In addition you'll want to precompute z and X and define the sample size n.
 
-```{r}
-sinv = 1/sg
+```{r, echo=TRUE}
+
+sinv <- 1/(sg)
 n <- length(L)
 z <- L/(L+theta)
 X <- cbind(rep(1,n),z)
+
 ```
 
 

@@ -165,7 +165,7 @@ beta <- matrix(c(b0,b1,b2,b3),4,1)		## put “true” regression parameters in a
 sigma <- 4				## define the standard deviation
 x1 <- runif(n,0,20)
 x2 <- runif(n,0,15)
-x_1 <- cbind(rep(1,n),x1,x2,x1*x2) #
+x <- cbind(rep(1,n),x1,x2,x1*x2) #
 
 y <- rnorm(n,x%*%beta,sigma) # responce variable
 plot(x1,y)
@@ -185,7 +185,7 @@ multivariate_regression <- "model{
   prec ~ dgamma(s1,s2)  ## prior precision
 
   for(i in 1:n){
-	  mu[i] <- beta[1] + beta[2]*x[i] + beta[3]*x[i] +beta[4]*x[i]  	## process model
+	  mu[i] <- beta[1] + beta[2]*x1[i] + beta[3]*x2[i] +beta[4]*x3[i]  	## process model
 	  y[i]  ~ dnorm(mu[i],prec)		## data model
   }
 }
@@ -197,7 +197,10 @@ data$Vb <- solve(diag(10000,4))   ## regression beta precisions
 
 data$s1 <- 0.1                    ## error prior n/2
 data$s2 <- 0.1                    ## error prior SS/2
-
+data$x1<-x1
+data$x2<-x2
+data$x3<-x1*x2
+data$n<-n
 ## Set up chains + MCMC
 nchain = 3
 inits <- list()
@@ -213,9 +216,10 @@ j.model   <- jags.model(file = textConnection(multivariate_regression),
 
 var.out   <- coda.samples (model = j.model,
                             variable.names = c("beta","prec"),
-                                n.iter = 7000)
+                                n.iter = 10000)
 
 ```
+
 
 
 
@@ -232,7 +236,7 @@ cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75,0.975)) # Eyeballing this time , st
 var.burn <-var.temp[1000:dim(var.temp)[1],]
 
 # Retrying effective sample size
-effectiveSize(var.burn) # looks good
+effectiveSize(var.burn) # small
 
 ```
 - Report parameter summary table.
@@ -281,17 +285,13 @@ lines(truth_beta3, truth_beta4, col="red", type = "pch")
 
 summary(var.burn)
 ```
-The model was decent for recovering the intercept, but not as good at recovering the slope. The mean slope was consistantly off, althought the covariation is closer. That the intercept was more easily modeled than the slopes makes sence, as it is dependant on less infomration than a slope. All the "true" values were within the 25% to 75% quartiles. 
+The model not as good at recovering the slope. The mean slope was consistantly off, althought the covariation is closer. That the intercept was more easily modeled than the slopes makes sence, as it is dependant on less infomration than a slope. All the "true" values were within the 25% to 75% quartiles. 
 
 ## Regression Credible intervals
 
 ```{r, echo= TRUE}
 
-xpred <- 0:20
-plot(x1,y)
-for(i in 1:10){
-  lines(xpred, var.mat[i,"beta[1]"] + var.mat[i,"beta[2]"]*xpred)
-}
+
 
 
 ## credible and prediction intervals
@@ -492,9 +492,16 @@ summary(var.burn.30) # Smaller bounds, similar means + medians
 - A plot with the pseudo-data, the true model, the 95% credible interval on the model, and the 95% prediction interval.
 
 ```{r, echo=TRUE}
+n <- 5 			## define the sample size
+b0 <- 10				## define the intercept
+b1 <- 2					## define the slope
+beta <- matrix(c(b0,b1),2,1)		## put “true” regression parameters in a matrix
+sigma <- 4				## define the standard deviation
+y <- rnorm(n,x%*%beta,sigma)
+#### Part 1.1: simulate the covariate 
 
-
-xpred <- 0:5
+x1 <- runif(n,0,20)
+xpred <- seq(min(x1), max(x1), length.out = n)
 #plot(x1,y)
 #for(i in 1:10){
  # lines(xpred, var.temp.5[i,"beta[1]"] + var.temp.5[i,"beta[2]"]*xpred)
@@ -503,7 +510,7 @@ xpred <- 0:5
 ## credible and prediction intervals
 nsamp <- length(xpred)
 samp <- sample.int(nrow(var.temp.5),nsamp)
-xpred <- order(x1)  					## sequence of x values we're going to
+ 					## sequence of x values we're going to
 npred <- length(xpred)				##      make predictions for
 ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
 ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
@@ -515,18 +522,18 @@ for(g in seq_len(nsamp)){
 }
 
 ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
-pi <- apply(ypred,2,quantile,c(0.025,0.975))
-		## prediction interval
+pi <- apply(ypred,2,quantile,c(0.025,0.975))	## prediction interval
 
 plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
 abline(b0,b1,col=2,lwd=3) 
 title("N= 5 case")
 
-lines(xpred,ci[1,],col=3,lty=2, type = "p")	## lower CI
-lines(xpred,ci[2,],col=3,lwd=3, type = "p")	## median
-lines(xpred,ci[3,],col=3,lty=2, type = "p")	## upper CI
-lines(xpred,pi[1,],col=4,lty=2, type = "p")	## lower PI
-lines(xpred,pi[2,],col=4,lty=2, type = "p")	## upper PI
+lines(xpred,ci[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3)	## median
+lines(xpred,ci[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi[2,],col=4,lty=2)	## upper PI
+
 ```
 
 ```{r, echo= TRUE}
@@ -537,9 +544,9 @@ x1 <- runif(n,0,20)
 y <- rnorm(n,x%*%beta,sigma)
 
 ## credible and prediction intervals
-nsamp <- length(x1)
-samp <- sample.int(nrow(var.temp.5),nsamp)
-xpred <- x1					## sequence of x values we're going to
+nsamp <- 5000
+samp <- sample.int(nrow(var.temp),nsamp)
+xpred <-  seq(min(x1), max(x1), length.out = n)					## sequence of x values we're going to
 npred <- length(xpred)				##      make predictions for
 ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
 ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
@@ -550,23 +557,35 @@ for(g in seq_len(nsamp)){
   ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
 }
 
-ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
-pi <- apply(ypred,2,quantile,c(0.025,0.975))
+ci_2 <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi_2 <- apply(ypred,2,quantile,c(0.025,0.975))
 		## prediction interval
 
 plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
 abline(b0,b1,col=2,lwd=3) 
 title("N= 30 case")
 
-lines(xpred,ci[1,],col=3,lty=2, type = "p")	## lower CI
-lines(xpred,ci[2,],col=3,lwd=3, type = "p")	## median
-lines(xpred,ci[3,],col=3,lty=2, type = "p")	## upper CI
-lines(xpred,pi[1,],col=4,lty=2, type = "p")	## lower PI
-lines(xpred,pi[2,],col=4,lty=2, type = "p")	## upper PI
+lines(order(xpred),order(ci_2[1,]),col=3,lty=2)	## lower CI
+lines(xpred,ci_2[2,],col=3,lwd=3)	## median
+lines(xpred,ci_2[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi_2[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi_2[2,],col=4,lty=2)	## upper PI
 ```
 
 *Overall also provide the following:*
 
 - Plots showing how the estimate of the parameter mean and the 95% CI around that mean changes with sample size. Sample size should be on the x-axis on a log scale. Make plots for each of the 3 parameters
+```{r, echo=TRUE}
+```
+
 - Describe how sample size affects the ability to estimate the true model parameters. Does the 95% CI or PI ever fail to encompass the true model? How does the width of the CI change as a function of sample size?
+
 - What is the (approximate) minimum sample size that would be required to reject the hypothesis that the slope of this line is 3/2 with 95% confidence.
+
+```{r, echo=TRUE}
+```
+
+
+
+
+

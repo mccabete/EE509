@@ -1,0 +1,413 @@
+---
+title: "Tess_McCabe_lab8"
+author: "Tess McCabe"
+date: "3/19/2018"
+output: html_document
+---
+
+
+## Case Study: Lab 4 pine cones data
+```{r, echo=TRUE}
+library(rjags)
+library(coda)
+load("data/Lab8_cone.RData")
+```
+
+
+## AIC vs Likelihood Ratio Test
+
+```{r, echo=TRUE}
+AIC.combined = 2*lnL[1] + 2*3
+AIC.treatment  = 2*(lnL[2]+lnL[3]) + 2*6
+AIC.combined
+AIC.treatment
+
+## Printing out LRT
+
+LR       <- dev.null - dev.tmt        ## Likelihood ratio
+pval     <- 1-pchisq(LR,3)
+LR
+pval
+```
+
+##  Lab Report Task 1*
+Compare the AICs for the two models, interpret the results for this test, and compare with the results from the LRT previously performed.
+
+Both the AIC and the p-value from the likelihood ratio test are expressing whether the treatment effect of Co2 is more different than the ambient treatment than random noise. Both the AIC and p-value agree: the CO2 treatment does have an effect. The difference in AIC between combined and treatment models  (about 44) and the small p-value suggests that there is a treatment effect. 
+
+
+## Bootstrapped Interval Estimates
+```{r, echo=TRUE}
+## bootstrap
+nboot <- 10000         ## number of bootstrap samples
+npred <- 31             ## number of X values you predict for
+dseq  <- seq(0,30,length=npred)     ## diameter sequence
+mle   <- matrix(NA,nrow=nboot,ncol=3)   ## storage for parameter estimates
+conf.mat  <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for maturation
+conf.cone <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for fecundity
+pred.mat   <- matrix(NA,nrow=nboot,ncol=npred)  ## storage for predictive maturation
+pred.cone <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for predictive fecundity
+
+
+## Ambient
+dia.t   <- b$diam[tmt=="AMB"]   ## tree diameters
+cones.t <- (b$c00 > 0)         ## whether cones are present
+cones.t <- cones[tmt=="AMB"]
+ncone.t <- b$c00[tmt=="AMB"]    ## number of cones
+
+likfit = function(param,dia,ncone){
+  a0 = param[1]
+  b0 = param[2]
+  b1 = param[3]
+  cones = ncone > 0
+
+  ## trees with cones
+  dia.cone  = dia[cones > 0]                ##find just the trees with cones
+  g.cone = a0 * dia.cone^2			## Fecundity fnc - g(x)
+  theta.cone    = pnorm(dia.cone,b0,b1,log.p=TRUE) 	## maturation probit
+  prob.cone = theta.cone + dpois(ncone[cones],g.cone,log=TRUE)
+  
+  ##trees with zero counts 
+  dia.zero  = dia[cones == 0]
+  g.zero = a0 * dia.zero^2
+  theta.zero    = pnorm(dia.zero,b0,b1)   	##maturation probit
+  prob.zero = log((1-theta.zero) + theta.zero*dpois(0,g.zero))
+
+  return(-sum(prob.cone,prob.zero))
+}
+
+## bootstrap loop
+for(i in 1:nboot){
+  if(i%%100 == 0) print(i)                      ## progress indicator
+  samp <- sample(length(dia.t),replace=T)       ##Sample row indices 
+  out.boot <- optim(param,likfit,method="L-BFGS-B",lower=c(0.001,10,1),upper=c(1,30,30),dia=dia.t[samp],ncone=ncone.t[samp])  ## fit model to sample
+  if(out.boot$convergence == 0){
+  mle[i,] <- out.boot$par                   ## store parameters
+  conf.mat[i,]  <- pnorm(dseq,mle[i,2],mle[i,3])        ## store model | parms
+  conf.cone[i,] <- conf.mat[i,]*mle[i,1]*dseq^2
+  pred.mat[i,]  <- rbinom(npred,1,conf.mat[i,])     ## store pseudodata
+  pred.cone[i,] <- rpois(npred,conf.cone[i,]*pred.mat[i,])
+  }
+}
+
+
+## Confidence intervals
+colnames(mle) = c("a0","b0","b1")
+a0.ci <- quantile(mle[,1],c(0.025,0.975), na.rm= TRUE)
+b0.ci <- quantile(mle[,2],c(0.025,0.975), na.rm= TRUE)
+b1.ci <- quantile(mle[,3],c(0.025,0.975), na.rm= TRUE)
+pairs(mle)
+
+mle<-na.omit(mle)
+
+```
+
+## Lab Report Task 2 
+Generate density and CI plots for all 3 model parameters. Include three figures and a table of parameter estimates, standard errors, and CI.
+
+```{r, echo=TRUE}
+
+## density plots
+plot(density(mle[,1],width=0.005),type='l',xlim=c(0,0.05),ylim=c(0,120), main = "")
+abline(v=a0.ci,lty=2)
+abline(v=a0[2])
+title("a0")
+
+plot(density(mle[,2],width=0.005),type='l',  main = "")
+abline(v=b0.ci,lty=2)
+abline(v=b0[2])
+title("b0")
+
+plot(density(mle[,3],width=0.005),type='l',  main = "")
+abline(v=b1.ci,lty=2)
+abline(v=b1[2])
+title("b1")
+
+summary(mle)
+mcmc<-as.mcmc(mle) # Hack to get the standard error
+sum<-summary(mcmc)
+print("Standard Error:")
+sum$statistics[,3] #Coresponds to Naive SE. Becuase bootstrap is independant, don't need to correct for  timesereis 
+print("Critical intervals:")
+a0.ci
+b0.ci
+b1.ci
+
+```
+
+## Model intervals
+
+```{r, echo =TRUE}
+ci.mat.amb  <- apply(conf.mat,2,quantile,c(0.025,0.5,0.975), na.rm= TRUE)
+ci.cone.amb <- apply(conf.cone,2,quantile,c(0.025,0.5,0.975), na.rm= TRUE)
+pi.mat.amb  <- apply(pred.mat,2,quantile,c(0.025,0.975), na.rm= TRUE)
+pi.cone.amb <- apply(pred.cone,2,quantile,c(0.025,0.975), na.rm= TRUE)
+
+
+## fecundity plot
+plot(b$diam,b$c00,col = b$tmt,ylim=c(0,30))
+lines(dseq,ci.cone.amb[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.cone.amb[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.cone.amb[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.cone.amb[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.cone.amb[2,],col=3,lty=2,lwd=3)
+
+## Maturation Plot
+plot(b$diam, cones, col = b$tmt)
+lines(dseq,ci.mat.amb[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.mat.amb[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.mat.amb[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.mat.amb[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.mat.amb[2,],col=3,lty=2,lwd=3)
+```
+
+## Lab Report Task 3 
+
+Plot the confidence and predictive interval for the maturation process model. Include both this plot and the fecundity plot in your lab report.
+
+```{r, echo = TRUE}
+## bootstrap
+nboot <- 10000         ## number of bootstrap samples
+npred <- 31             ## number of X values you predict for
+dseq  <- seq(0,30,length=npred)     ## diameter sequence
+mle   <- matrix(NA,nrow=nboot,ncol=3)   ## storage for parameter estimates
+conf.mat  <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for maturation
+conf.cone <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for fecundity
+pred.mat   <- matrix(NA,nrow=nboot,ncol=npred)  ## storage for predictive maturation
+pred.cone <- matrix(NA,nrow=nboot,ncol=npred)   ## storage for predictive fecundity
+
+
+## Ambient
+dia.t   <- b$diam[tmt=="CO2"]   ## tree diameters
+cones.t <- (b$c00 > 0)         ## whether cones are present
+cones.t <- cones[tmt=="CO2"]
+ncone.t <- b$c00[tmt=="CO2"]    ## number of cones
+
+likfit = function(param,dia,ncone){
+  a0 = param[1]
+  b0 = param[2]
+  b1 = param[3]
+  cones = ncone > 0
+
+  ## trees with cones
+  dia.cone  = dia[cones > 0]                ##find just the trees with cones
+  g.cone = a0 * dia.cone^2			## Fecundity fnc - g(x)
+  theta.cone    = pnorm(dia.cone,b0,b1,log.p=TRUE) 	## maturation probit
+  prob.cone = theta.cone + dpois(ncone[cones],g.cone,log=TRUE)
+  
+  ##trees with zero counts 
+  dia.zero  = dia[cones == 0]
+  g.zero = a0 * dia.zero^2
+  theta.zero    = pnorm(dia.zero,b0,b1)   	##maturation probit
+  prob.zero = log((1-theta.zero) + theta.zero*dpois(0,g.zero))
+
+  return(-sum(prob.cone,prob.zero))
+}
+
+## bootstrap loop
+for(i in 1:nboot){
+  if(i%%100 == 0) print(i)                      ## progress indicator
+  samp <- sample(length(dia.t),replace=T)       ##Sample row indices 
+  out.boot <- optim(param,likfit,method="L-BFGS-B",lower=c(0.001,10,1),upper=c(1,30,30),dia=dia.t[samp],ncone=ncone.t[samp])  ## fit model to sample
+  if(out.boot$convergence == 0){
+  mle[i,] <- out.boot$par                   ## store parameters
+  conf.mat[i,]  <- pnorm(dseq,mle[i,2],mle[i,3])        ## store model | parms
+  conf.cone[i,] <- conf.mat[i,]*mle[i,1]*dseq^2
+  pred.mat[i,]  <- rbinom(npred,1,conf.mat[i,])     ## store pseudodata
+  pred.cone[i,] <- rpois(npred,conf.cone[i,]*pred.mat[i,])
+  }
+}
+
+
+## Confidence intervals
+colnames(mle) = c("a0","b0","b1")
+a0.ci.CO2 <- quantile(mle[,1],c(0.025,0.975), na.rm= TRUE)
+b0.ci.CO2 <- quantile(mle[,2],c(0.025,0.975), na.rm= TRUE)
+b1.ci.CO2 <- quantile(mle[,3],c(0.025,0.975), na.rm= TRUE)
+pairs(mle)
+
+mle<-na.omit(mle)
+
+## Summary Stats
+summary(mle)
+mcmc<-as.mcmc(mle) # Hack to get the standard error
+sum<-summary(mcmc)
+print("Standard Error:")
+sum$statistics[,3] #Coresponds to Naive SE. Becuase bootstrap is independant, don't need to correct for  timesereis 
+print("Critical intervals:")
+a0.ci.CO2
+b0.ci.CO2
+b1.ci.CO2
+
+
+## plots
+ci.mat  <- apply(conf.mat,2,quantile,c(0.025,0.5,0.975), na.rm= TRUE)
+ci.cone <- apply(conf.cone,2,quantile,c(0.025,0.5,0.975), na.rm= TRUE)
+pi.mat  <- apply(pred.mat,2,quantile,c(0.025,0.975), na.rm= TRUE)
+pi.cone <- apply(pred.cone,2,quantile,c(0.025,0.975), na.rm= TRUE)
+
+
+## fecundity plot
+plot(b$diam,b$c00,col = b$tmt,ylim=c(0,30), main =" Elevated Fecundity")
+lines(dseq,ci.cone[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.cone[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.cone[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.cone[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.cone[2,],col=3,lty=2,lwd=3)
+
+## Maturation Plot
+plot(b$diam, cones, col = b$tmt, main = " Elevated Maturation")
+lines(dseq,ci.mat[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.mat[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.mat[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.mat[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.mat[2,],col=3,lty=2,lwd=3)
+
+## Evlvated vs Amb - Fecundity
+plot(b$diam,b$c00,col = b$tmt,ylim=c(0,30), main =" Elevated vs Amb Fecundity")
+lines(dseq,ci.cone[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.cone[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.cone[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.cone[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.cone[2,],col=3,lty=2,lwd=3)
+
+lines(dseq,ci.cone.amb[2,],col=4,lwd=3)   ## median model
+lines(dseq,ci.cone.amb[1,],col=4,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.cone.amb[3,],col=4,lty=2,lwd=3)
+lines(dseq,pi.cone.amb[1,],col=5,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.cone.amb[2,],col=5,lty=2,lwd=3)
+
+## Elevated vs Amb - Maturation
+plot(b$diam, cones, col = b$tmt, main = " Elevated Maturation")
+lines(dseq,ci.mat[2,],col=2,lwd=3)   ## median model
+lines(dseq,ci.mat[1,],col=2,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.mat[3,],col=2,lty=2,lwd=3)
+lines(dseq,pi.mat[1,],col=3,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.mat[2,],col=3,lty=2,lwd=3)
+
+lines(dseq,ci.mat.amb[2,],col=4,lwd=3)   ## median model
+lines(dseq,ci.mat.amb[1,],col=4,lty=2,lwd=3)	## 95% CI
+lines(dseq,ci.mat.amb[3,],col=4,lty=2,lwd=3)
+lines(dseq,pi.mat.amb[1,],col=5,lty=2,lwd=3)	## 95% PI
+lines(dseq,pi.mat.amb[2,],col=5,lty=2,lwd=3)
+
+```
+
+## Extra Credit
+
+
+```{r, echo= TRUE}
+
+load("data/Lab8_fire.RData")
+
+## Contour plot
+c_mle = out$par[1]      ## MLE for the parameter “C”
+lam_mle = out$par[2]        ## MLE for the parameter “Lambda”
+contour(rp*c_mle,rp*lam_mle,z,levels=c(350,360,370,380),xlab="C",ylab="Lambda")
+## add the  MLE's
+abline(v=c_mle,lty=2)
+abline(h=lam_mle,lty=2)
+
+
+## likelihood profile
+prof_lam <- function(c,lambda){   ## find the MLE holding lambda at a constant
+  -sum(dweibull(firedata,c,lambda,log=TRUE))
+}
+prof_c <- function(lambda,c){    ## find the MLE holding C at a constant
+  -sum(dweibull(firedata,c,lambda,log=TRUE))
+}
+
+
+lambdas     = lam_mle*rp        ## sequence of lambda values being evaluated
+lambda.like = numeric(nstep)        ## storage for lambda likelihood values
+CgivenL      = numeric(nstep)     ## storage for c value that pairs with the lambda
+for(i in 1:nstep){                  ## set lambda, solve for MLE
+  lout <- optimize(prof_lam,interval=range(c_mle*rp),maximum=FALSE,lambda=lambdas[i])
+  lambda.like[i] <- lout$objective      ## save the likelihood
+  CgivenL[i] = lout$minimum ## save the MLE of c
+}
+
+contour(rp*c_mle,rp*lam_mle,z,levels=c(350,360,370,380),xlab="C",ylab="Lambda")
+abline(v=c_mle,lty=2)
+abline(h=lam_mle,lty=2)
+lines(CgivenL,lambdas,type='b',pch="+",cex=0.5) ## add points to the contour plot
+
+c.like = rp*0 ## defined just so Knitr runs, replace with estimation
+```
+
+## Task 5
+
+```{r, echo= TRUE}
+
+       
+c_vals<-c_mle*rp  ## sequence of c values being evaluated
+c.like<-numeric(nstep)  ## storage for c likelihood values
+LgivenC= numeric(nstep)  ## storage for c value that pairs with the lambda
+      
+  
+for(i in 1:nstep){                  ## set lambda, solve for MLE
+  cout <- optimize(prof_c,interval=range(lam_mle*rp),maximum=FALSE,c=c_vals[i])
+  c.like[i] <- cout$objective      ## save the likelihood
+  LgivenC[i] = cout$minimum ## save the MLE of c
+}
+
+contour(rp*c_mle,rp*lam_mle,z,levels=c(350,360,370,380),xlab="C",ylab="Lambda")
+abline(v=c_mle,lty=2)
+abline(h=lam_mle,lty=2)
+lines(CgivenL,lambdas,type='b',pch="+",cex=0.5) ## add points to the contour plot
+lines(c_vals, LgivenC,type='b',pch="+",col= "red", cex=0.5) 
+```
+
+```{r, echo=TRUE}
+## Likelyhood profiles
+c.seq = c_mle*rp
+lambda.seq = lam_mle*rp
+plot(c.seq,c.like,type='l',xlab="C",ylab="Likelihood")
+plot(lambda.seq,lambda.like,type='l',xlab="Lambda",ylab="Likelihood")
+
+
+## Devience  (- vvv -) 
+Dtest = qchisq(0.95,1)      ## Deviance for 95% CI
+Dthresh = 2*out$value + Dtest   ## Deviance threshold value
+findThresh <- function(vec,Thr){    ## find indices where vector crosses Thr
+    which(as.logical(diff(sign(vec-Thr))))      
+}
+
+c.CI = c.seq[findThresh(c.like,Dthresh/2)]
+plot(c.seq,c.like,type='l',xlab="C",ylab="Likelihood")
+abline(h=Dthresh/2)            ## deviance is divided by 2 to convert to neg log likelihood
+abline(v=c.CI)
+```
+
+## Lab Report Task 6
+Modify the previous section of code to calculate the CI for lambda as well. Turn in the likelihood profile plots with the CI and threshold for both variables and report the numeric values for the MLE and CI for both parameters
+
+```{r, echo=TRUE}
+## Likelyhood profiles
+lambda.seq = lam_mle*rp
+#plot(c.seq,c.like,type='l',xlab="C",ylab="Likelihood")
+#plot(lambda.seq,lambda.like,type='l',xlab="Lambda",ylab="Likelihood")
+
+
+## Devience  (- vvv -) 
+#Dtest = qchisq(0.95,1)      ## Deviance for 95% CI
+Dthresh = 2*out$value + Dtest   ## Deviance threshold value
+#findThresh <- function(vec,Thr){    ## find indices where vector crosses Thr
+#    which(as.logical(diff(sign(vec-Thr))))      
+#}
+
+lam.CI = lambda.seq[findThresh(lambda.like,Dthresh/2)]
+plot(lambda.seq,lambda.like,type='l',xlab="lambda",ylab="Likelihood")
+abline(h=Dthresh/2)            ## deviance is divided by 2 to convert to neg log likelihood
+abline(v=lam.CI)
+
+## Numeric values of MLE and CI
+
+print("Critical interval, mle lambda: ")
+lam.CI
+lam_mle
+print("Critical interval. mle c:")
+c.CI
+c_mle
+
+```
