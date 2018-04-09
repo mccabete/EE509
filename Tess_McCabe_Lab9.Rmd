@@ -1,0 +1,373 @@
+---
+title: "Tess_McCabe_Lab9"
+author: "Tess McCabe"
+date: "3/26/2018"
+output: html_document
+---
+```{r, include=FALSE}
+```
+
+```{r, echo=TRUE}
+```
+
+```{r setup, include=FALSE}
+library(rjags)
+library(coda)
+load("data/Lab9.RData")
+```
+
+## Seedling recruitment and soil moisture
+Link function: 
+$$log(\mu) = \beta_0 + \beta_1 TDR$$ $$y \sim Pois(\mu)$$
+
+```{r, echo=TRUE}
+PR1 = glm(y ~ TDR, family=poisson(link="log"))
+PR1
+
+
+
+```
+
+## Task 1
+
+- Plot seedling densities as a function of TDR
+- Add regression lines to the plot Hint 1: use “coef” to extract the regression coefficients from the GLM. Hint 2: don't forget about the link function when plotting the lines
+```{r, echo=TRUE}
+seq<-seq(0:max(TDR), by =0.1)
+
+plot(TDR,y, main= "seedling desnity by TDR")
+TDR_order<-order(TDR)
+lines(sort(TDR),exp(sort(TDR)*PR1$coefficients[2]+PR1$coefficients[1]), col= "red")
+```
+
+- Briefly describe how you would add model confidence and predictive intervals to these curves
+
+For frequentist CI's and PI's, I would generate psudo-data based on the maximum-liklyhood parameters I just found. I would then generate quantiles based on many samples from the data I generated. 
+
+- What would be an appropriate null model to compare to? What metric would you use to compare the two models?
+
+I would probably compare this to a mean-model and a linear model. I would then us AIC to compare all three models. 
+
+- Plot the calibration data of TDR vs. soil moisture. Fit a Normal regression model to the calibration data, add the line to the plot, and report the summary table information for the fit
+
+```{r, echo= TRUE}
+calibration_lm<-glm(SMc~TDRc, family = gaussian)
+
+plot(TDRc,SMc, main= "Calibration")
+abline(calibration_lm$coefficients)
+
+summary(calibration_lm)
+```
+
+## Bayesian Poisson Regression
+
+```{r, echo= TRUE}
+## Build Poission Model
+data <- list(x = TDR, y = y, n = length(TDR))
+
+poission_regression <- "
+model{
+
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+
+  for(i in 1:n){
+	 log(mu[i]) <- beta[1]+beta[2]*x[i]     ## process model
+	  y[i]  ~ dpois(mu[i])		## data model
+  }
+}
+"
+
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+#data$s1 <- 0.1                    ## error prior n/2
+#data$s2 <- 0.1                    ## error prior SS/2
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5))
+}
+
+j.model   <- jags.model(file = textConnection(poission_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta"),
+                                n.iter = 200000)
+
+```
+
+## Task Two
+
+**Diagnostic Plots - not shown in Knit version**
+```{r, include=FALSE}
+plot(var.out)
+
+gelman.plot(var.out) # looks like around 4000
+var.burn<-window(var.out, start= 4000)
+
+effectiveSize(var.burn) 
+```
+- Fit the Bayesian Poisson regression model. Provide the DIC, and summary table & posterior density plots for all model parameters. Report the burn in and effective MCMC sample size (You should still be making diagnostic plots but you no longer need to include them).
+```{r, echo= TRUE}
+## Density plots
+plot(var.burn)
+
+## Summary Table
+summary(var.burn)
+
+## DIC
+DIC<-dic.samples(j.model, n.iter = 10000)
+DIC
+
+## Diagnostic Summary
+print("Burn in: 4000, Effective Sample size = 39618.43, 36309.80")
+
+```
+
+- Compare the parameters from the Bayesian fit to the Likelihood fit. Make sure to identify which terms match with which between the models.
+```{r, echo =TRUE}
+
+summary(PR1)
+
+bayes_sum<-summary(var.burn)
+
+print("Comparison of model terms. Intercept = beta[1], TDR = beta[2]")
+bayes_sum$statistics
+PR1$coefficients
+
+print("Evaluation of model performentce, DIC= bayes, AIC= ML")
+DIC
+print(paste("ML AIC evaluation:", PR1$aic) )
+
+
+```
+- Plot the model credible interval and predictive interval. Be sure to include the scatterplot of the observed data.
+
+```{r, echo=TRUE}
+
+## Baysian CI + PI
+var.mat<-as.matrix(var.burn)
+
+nsamp <- 5000
+samp <- sample.int(nrow(as.matrix(var.burn)),nsamp)
+b0<-var.mat[,1]
+b1<-var.mat[,2]
+xpred <- seq(0:max(TDR), by =0.01)
+ycred <- matrix(0,nrow=10000,ncol=101)
+ypred <- matrix(0,nrow=10000,ncol=101)
+
+for(g in 1:10000){
+Ey<- exp(b0[g] + b1[g] * xpred)
+ ycred[g,]<-Ey
+ ypred[g,] <- rpois(length(xpred),Ey)
+}
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5, 0.975), na.rm= TRUE)
+pi <- apply(ypred,2,quantile,c(0.025,0.5, 0.975), na.rm= TRUE)		## prediction interval
+
+
+plot(TDR,y)
+lines(xpred,ci[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3)	## median
+lines(xpred,ci[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi[3,],col=4,lty=2)	## upper PI
+#abline(b0,b1)				## true model
+```
+- How well does the Poisson model match the data? Does 95% of the data fall within the 95% PI?
+
+I would say that the Poission model does pretty well, but that certainly more than 5 data points fall outside the PI. 
+
+## Lab Report task 3
+
+```{r, echo=TRUE}
+new_TDR<-TDR
+print(TDR[95])
+new_TDR[95]<-NA
+
+
+data <- list(x = as.vector(new_TDR), y = y, n = length(new_TDR))
+max(new_TDR, na.rm=TRUE)
+min(new_TDR, na.rm=TRUE)
+
+poission_regression <- "
+model{
+  x[95] ~ dunif(-0.05846903, 0.6185914)
+  beta ~ dmnorm(b0,Vb)  	## prior regression params
+
+  for(i in 1:n){
+	 log(mu[i]) <- beta[1]+beta[2]*x[i]     ## process model
+	  y[i]  ~ dpois(mu[i])		## data model
+  }
+}
+"
+
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+#data$s1 <- 0.1                    ## error prior n/2
+#data$s2 <- 0.1                    ## error prior SS/2
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5))
+}
+
+j.model   <- jags.model(file = textConnection(poission_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta", "x[95]"),
+                                n.iter = 200000)
+
+```
+
+**Diagnostic Plots - not shown in Knit version**
+```{r, include=FALSE}
+plot(var.out)
+
+gelman.plot(var.out) # looks like around 4000
+var.burn<-window(var.out, start= 4000)
+
+effectiveSize(var.burn) 
+```
+
+- Report the posterior distributions of the missing TDR data. How does this compare to the prior your specified and to the true value?
+
+```{r, echo=TRUE}
+summary(var.burn)
+print(TDR[95])
+```
+The estimate of x[95] is a little off, but still between the 25% and 75% quantiles. I suspect that using a uniform distribution threw it off a little bit -and would have been especially misleading if I had a missing data point that was a little less than the min or more than the max.
+
+## Lab Task 4
+
+- Fit the final combined calibration/Poisson regression model and provide a summary table and posterior density plots for the model parameters. Also report the burn in and the effective MCMC sample size.
+```{r, echo= TRUE}
+## Build Poission Model
+data <- list(TDR = TDR, y = y, n = length(TDR), TDRc= TDRc)
+
+PoisRegPlusCalib = "
+model {
+  ### TDR calibration curve
+  for(i in 1:2) { alpha[i] ~ dnorm(0,0.001)}   ## calibration priors
+  sigma ~ dgamma(0.1,0.1)
+  for(i in 1:10){
+    ESMc[i] <- alpha[1] + alpha[2]*TDRc[i]   ## expected soil moisture, calibration process model
+    SMc[i] ~ dnorm(ESMc[i],sigma)  	         ## calibration data model
+  }
+  
+  ## Seedling Density vs Soil Moisture
+  for(i in 1:2) { beta[i] ~ dnorm(0,0.001)}   ## Poisson regression priors
+  for(i in 1:n){
+    ESM[i] <-  alpha[1] + alpha[2]*TDR[i]     ## Errors in Variables – process model
+    SM[i] ~ dnorm(ESM[i],sigma)               ## Errors in Variables – data model
+    log(mu[i]) <- beta[1]+beta[2]*SM[i]       ## Poisson Regression – process model
+    y[i] ~ dpois(mu[i])                       ## Poisson Regression – data model
+  }
+}
+"
+
+## specify priors
+data$b0 <- as.vector(c(0,0))      ## regression beta means
+data$Vb <- solve(diag(10000,2))   ## regression beta precisions
+#data$s1 <- 0.1                    ## error prior n/2
+#data$s2 <- 0.1                    ## error prior SS/2
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(beta = rnorm(2,0,5), alpha= rnorm(2,0,3))
+}
+
+j.model   <- jags.model(file = textConnection(PoisRegPlusCalib),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+var.out   <- coda.samples (model = j.model,
+                            variable.names = c("beta", "alpha", "sigma"),
+                                n.iter = 300000)
+
+```
+
+## Task Two
+
+**Diagnostic Plots - not shown in Knit version**
+```{r, include=FALSE}
+#plot(var.out)
+
+gelman.plot(var.out) # looks like around 4000
+var.burn<-window(var.out, start= 100000)
+
+effectiveSize(var.burn) 
+```
+
+```{r, echo= TRUE}
+## Density plots
+plot(var.burn)
+
+## Summary Table
+summary(var.burn)
+
+## DIC
+DIC<-dic.samples(j.model, n.iter = 10000)
+DIC
+
+## Diagnostic Summary
+print("Burn in: 100000, Effective Sample size = alpha[1] 31.19144 alpha[2] 169.05046   beta[1] 26.86287  beta[2] 27.17342" ) # I know this is small but 300000 felt like the maximum I could resonably go on my laptop.
+
+```
+
+- Plot the model credible interval and predictive interval. Extra Credit: Include the scatterplot of the data on the plot, using the posterior CIs for all the latent SM variables as the x.
+
+```{r, echo=TRUE}
+var.mat<-as.matrix(var.burn)
+
+nsamp <- 5000
+samp <- sample.int(nrow(as.matrix(var.burn)),nsamp)
+b0<-var.mat[,3]
+b1<-var.mat[,4]
+a1<-var.mat[,1]
+a2<-var.mat[,2]
+sigma<- var.mat[,5]
+xpred <- seq(0:max(TDR), by =0.01)
+ycred <- matrix(0,nrow=10000,ncol=101)
+ypred <- matrix(0,nrow=10000,ncol=101)
+ESM   <- matrix(0,nrow=10000,ncol=1)
+SM    <- matrix(0,nrow=10000,ncol=1)
+
+for(g in 1:10000){
+Ey<- exp(b0[g] + b1[g] * xpred)
+ ycred[g,]<-Ey
+ ypred[g,] <- rpois(length(xpred),Ey)
+}
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5, 0.975), na.rm= TRUE)
+pi <- apply(ypred,2,quantile,c(0.025,0.5, 0.975), na.rm= TRUE)		## prediction interval
+
+
+plot(TDR,y)
+lines(xpred,ci[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci[2,],col=3,lwd=3)	## median
+lines(xpred,ci[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi[3,],col=4,lty=2)	## upper PI
+#abline(b0,b1)				## true model
+
+```
+
+
+- How does this fit compare to the previous Poisson regression of seedlings vs TDR in terms of the overall uncertainty in the model (width of credible and predictive intervals)? In qualitative terms, to what degree does ignoring the uncertainty in the TDR/Soil Moisture relationship affect the uncertainty in our parameter estimates and our confidence in our model?
+
+The CI's and PI's are larger, which accounds for a more acurate proportion of the data (closer to 95% of data within PI's). This makes the predictive interval more "honest" or more reflective of the information the data has. There's also some error indtroduced by the fact that my model didn't converge for the alpha's. 

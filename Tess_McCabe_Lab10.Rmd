@@ -1,0 +1,114 @@
+---
+title: "Tess_McCabe_Lab10"
+output: html_notebook
+---
+
+```{r, include=FALSE}
+library(coda)
+library(rjags)
+```
+
+
+```{r, echo=TRUE}
+data<- read.csv("data/Mosquito.csv", header = TRUE)
+```
+
+## Lab Report Task 1:
+
+- Plot mosquito abundance as a function of time in a way that distinguishes the reps (e.g. with lines, colors, or symbols)
+
+```{r, echo=TRUE}
+plot(x= data$time, y=data[,2], ylim=c(6.5,8.5))
+lines(x= data$time, y=data[,3], col =2)
+lines(x= data$time, y=data[,4], col =3)
+lines(x= data$time, y=data[,5], col =4)
+lines(x= data$time, y=data[,6], col =4)
+
+```
+
+- Fit the overall mean and standard deviation, reporting summary statistics for both. 
+
+```{r, echo=TRUE}
+
+data_model = list(n = length(data[,1]), nb= 5, mu0=20, T=0.01,  R = 0.01, x = data[,2:6] )
+
+NormalMeanN <- "
+model {
+  S ~ dexp(R) # Prior on varience
+  mu ~ dnorm(mu0,T) # prior on the mean 
+ 
+for(g in 1:nb){
+for(i in 1:n){
+    x[i,g] ~ dnorm(mu,S) # data model
+  }
+}
+}
+  
+"
+
+inits_tess<-list()
+inits_tess[[1]] <- list(mu = mean(data[,2]), S= 1)
+inits_tess[[2]] <- list(mu = (mean(data[,3])-(mean(data[,3])*(1/4))), S = 5)
+inits_tess[[3]] <- list(mu = mean(data[,4])+(mean(data[,4])*(1/4)), S = 10)
+
+j.model   <- jags.model (file = textConnection(NormalMeanN),
+                             data = data_model,
+                             inits = inits_tess,
+                             n.chains = 3)
+jags.out   <- coda.samples (model = j.model,
+                            variable.names = c("mu", "S"),
+                                n.iter = 5000)
+```
+
+Hint 1: You can use the JAGS code from lab 5, but remember that your “x” is a matrix of year-by-rep and thus you will need to loop over both year and rep rather than just looping 'i in 1:n'.
+
+Hint 2: When converting the mosquito data to be 'x' in your data list, you need to shave off the “time” column for this to have the correct dimensions and indexing.
+
+** Diagnostic plots - not to be included in final Knitting**
+```{r, include=FALSE}
+gelman.plot(jags.out) # good past 600
+jags.burn <- window(jags.out, start= 600, end=5000)
+effectiveSize(jags.burn) # Very large sample size
+
+```
+
+- Add posterior CI and PI to the plot.
+```{r, echo=TRUE}
+## credible and prediction intervals
+nsamp <- 5000
+samp <- sample.int(nrow(as.matrix(jags.burn)),nsamp)
+xpred <- seq(from= 1995, to=2004, by=0.1) 					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+mu<-as.matrix(jags.burn[,2])
+S<-as.matrix(jags.burn[,1])
+
+
+for(g in seq_len(nsamp)){
+  ycred[g,] <- mu[g]
+  ypred[g,] <- rnorm(npred,mean =ycred[g,], sd=1/(S[g])^(1/2))
+}
+
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi <- apply(ypred,2,quantile,c(0.025,0.975))		## prediction interval
+
+plot(x= data$time, y=data[,2], ylim=c(6.5,8.5), type= "l")
+lines(x= data$time, y=data[,3], col =2)
+lines(x= data$time, y=data[,4], col =3)
+lines(x= data$time, y=data[,5], col =4)
+lines(x= data$time, y=data[,6], col =5)
+lines(xpred,ci[1,],col=6,lty=2)	## lower CI
+lines(xpred,ci[2,],col=6,lwd=3)	## median
+lines(xpred,ci[3,],col=6,lty=2)	## upper CI
+lines(xpred,pi[1,],col=6,lty=2)	## lower PI
+lines(xpred,pi[2,],col=6,lty=2)	## upper PI
+
+```
+
+## Lab Report Task 2
+```{r, echo= TRUE}
+
+
+
+```

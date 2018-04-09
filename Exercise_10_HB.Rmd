@@ -14,7 +14,8 @@ The other thing that will be introduced in this lab is the technique of calling 
 To be able to call WinBUGS from R we need to load up the appropriate libraries
 
 ```{r}
-  library(rjags)
+ 
+ library(rjags)
 ```
 
 Next, lets consider the simple BUGS model for fitting the mean and precision of a normal distribution. To be able pass this model to BUGS we're going to define it as a string within R.

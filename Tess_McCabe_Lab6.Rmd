@@ -1,6 +1,8 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document: default
+  html_notebook: default
 ---
 
 ```{r setup, echo=FALSE}
@@ -123,7 +125,7 @@ gelman.plot(var.out)
 acfplot(var.out)
 effectiveSize(var.out) # 6000
 
-cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75,0.975)) # Eyeballing this, looks like I'm pretty safe after 1000 iteractions. 
+cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75, 0.95,0.975)) # Eyeballing this, looks like I'm pretty safe after 1000 iteractions. 
 var.burn <- window(var.out,start=1000)
 
 # Retrying effective sample size
@@ -151,9 +153,12 @@ summary(var.burn) # baysian regression. Very similar up to three decimal places.
 
 In this case, the baysian analysis performed slightly better than the regression (the parameter values were closer to the true values than the classical regression). Both statstical analysis were very close, however. Depending on how you define significant digets, it's correct. 
 
-## Multiple Regression
 
-```{r, echo = TRUE}
+## Lab Report Task 2
+- Show the JAGS and R code used.
+
+```{r, echo= TRUE}
+
 #### Make Sudo data
 
 n <- 250  			## define the sample size
@@ -173,12 +178,7 @@ plot(x2,y)
 
 #x[4,1]
 
-```
 
-## Lab Report Task 2
-- Show the JAGS and R code used.
-
-```{r, echo= TRUE}
 multivariate_regression <- "model{
 
   beta ~ dmnorm(b0,Vb)  	## prior regression params
@@ -191,6 +191,7 @@ multivariate_regression <- "model{
 }
 "
 
+data<-list()
 ## Set up priors
 data$b0 <- as.vector(c(0,0,0,0))  ## regression beta means
 data$Vb <- solve(diag(10000,4))   ## regression beta precisions
@@ -232,7 +233,7 @@ var.temp<-as.matrix(var.out)
 acfplot(var.out)
 effectiveSize(var.out)
 
-cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75,0.975)) # Eyeballing this time , still looks like I'm pretty safe after 1000 iteractions. 
+cumuplot(var.out,probs=c(0.025,0.25,0.5,0.75, 0.95, 0.975)) # Eyeballing this time , still looks like I'm pretty safe after 1000 iteractions. 
 var.burn <-var.temp[1000:dim(var.temp)[1],]
 
 # Retrying effective sample size
@@ -313,8 +314,8 @@ for(g in seq_len(nsamp)){
 
 ## Calculate a 5% quantile
 
-ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
-pi <- apply(ypred,2,quantile,c(0.025,0.975))		## prediction interval
+ci <- apply(ycred,2,quantile,c(0.025,0.5,0.95, 0.975))  ## credible interval and median
+pi <- apply(ypred,2,quantile,c(0.025,0.95, 0.975))		## prediction interval
 
 plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
 lines(xpred,ci[1,],col=3,lty=2)	## lower CI
@@ -508,8 +509,8 @@ xpred <- seq(min(x1), max(x1), length.out = n)
 #}
 
 ## credible and prediction intervals
-nsamp <- length(xpred)
-samp <- sample.int(nrow(var.temp.5),nsamp)
+nsamp <- 5000
+samp <- sample.int(nrow(var.burn.5),nsamp)
  					## sequence of x values we're going to
 npred <- length(xpred)				##      make predictions for
 ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
@@ -521,18 +522,18 @@ for(g in seq_len(nsamp)){
   ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
 }
 
-ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
-pi <- apply(ypred,2,quantile,c(0.025,0.975))	## prediction interval
+ci_1 <- apply(ycred,2,quantile,c(0.025,0.5, 0.95, 0.975))  ## credible interval and median
+pi_1 <- apply(ypred,2,quantile,c(0.025,0.5, 0.95, 0.975))	## prediction interval
 
 plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
 abline(b0,b1,col=2,lwd=3) 
 title("N= 5 case")
 
-lines(xpred,ci[1,],col=3,lty=2)	## lower CI
-lines(xpred,ci[2,],col=3,lwd=3)	## median
-lines(xpred,ci[3,],col=3,lty=2)	## upper CI
-lines(xpred,pi[1,],col=4,lty=2)	## lower PI
-lines(xpred,pi[2,],col=4,lty=2)	## upper PI
+lines(xpred,ci_1[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci_1[2,],col=3,lwd=3)	## median
+lines(xpred,ci_1[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi_1[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi_1[2,],col=4,lty=2)	## upper PI
 
 ```
 
@@ -544,8 +545,8 @@ x1 <- runif(n,0,20)
 y <- rnorm(n,x%*%beta,sigma)
 
 ## credible and prediction intervals
-nsamp <- 5000
-samp <- sample.int(nrow(var.temp),nsamp)
+nsamp <-5000
+samp <- sample.int(nrow(var.burn.30),nsamp)
 xpred <-  seq(min(x1), max(x1), length.out = n)					## sequence of x values we're going to
 npred <- length(xpred)				##      make predictions for
 ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
@@ -557,15 +558,16 @@ for(g in seq_len(nsamp)){
   ypred[g,] <- rnorm(npred,ycred[g,],1/sqrt(theta["prec"]))
 }
 
-ci_2 <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
-pi_2 <- apply(ypred,2,quantile,c(0.025,0.975))
+
+ci_2 <- apply(ycred,2,quantile,c(0.025,0.5, 0.95,0.975))  ## credible interval and median
+pi_2 <- apply(ypred,2,quantile,c(0.025,0.5,0.95,0.975))
 		## prediction interval
 
-plot(x1,y,cex=0.5,xlim=c(0,20),ylim=c(0,50))
+plot(x1,y,cex=0.5,xlim=c(0,20))
 abline(b0,b1,col=2,lwd=3) 
 title("N= 30 case")
 
-lines(order(xpred),order(ci_2[1,]),col=3,lty=2)	## lower CI
+lines(xpred,ci_2[1,],col=3,lty=2)	## lower CI
 lines(xpred,ci_2[2,],col=3,lwd=3)	## median
 lines(xpred,ci_2[3,],col=3,lty=2)	## upper CI
 lines(xpred,pi_2[1,],col=4,lty=2)	## lower PI
@@ -576,14 +578,32 @@ lines(xpred,pi_2[2,],col=4,lty=2)	## upper PI
 
 - Plots showing how the estimate of the parameter mean and the 95% CI around that mean changes with sample size. Sample size should be on the x-axis on a log scale. Make plots for each of the 3 parameters
 ```{r, echo=TRUE}
+sample_size<-c(5,30,250)
+critical_interval_length<-c(as.numeric(ci_1[3,3])-as.numeric(ci_1[3,1]),as.numeric(ci_2[3,3])-as.numeric(ci_2[3,1]),as.numeric(ci[3,3])-as.numeric(ci[3,1]))
+
+plot(sample_size, critical_interval_length, log="xy")
 ```
 
 - Describe how sample size affects the ability to estimate the true model parameters. Does the 95% CI or PI ever fail to encompass the true model? How does the width of the CI change as a function of sample size?
 
+Sample size has a huge effect on how narrow/ wide the CI and PI bands are. The larger the sample size, that more narrow the CI is. The confidence intervals prodiced by the n=5 case almost entirly excludes the true model -and it's overly confident. This is probably becuase I took 5000 samples from an N=5 based distribution. 
+
 - What is the (approximate) minimum sample size that would be required to reject the hypothesis that the slope of this line is 3/2 with 95% confidence.
 
 ```{r, echo=TRUE}
+plot(x1,y,cex=0.5,xlim=c(0,20))
+abline(b0,(3/2),col=2,lwd=3)
+abline(b0,b1,col=2,lwd=3)
+title("Regecting a slope of 3/2")
+lines(xpred,ci_2[1,],col=3,lty=2)	## lower CI
+lines(xpred,ci_2[2,],col=3,lwd=3)	## median
+lines(xpred,ci_2[3,],col=3,lty=2)	## upper CI
+lines(xpred,pi_2[1,],col=4,lty=2)	## lower PI
+lines(xpred,pi_2[2,],col=4,lty=2)	## upper PI
 ```
+
+In looking at the confidence intervals, I'd guess something like n=50 so that no part of the 3/2 line was in the CI. 
+
 
 
 

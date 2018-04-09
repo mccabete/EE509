@@ -174,9 +174,9 @@ model {
 "
 
 inits_tess<-list()
-inits_tess[[1]] <- list(mu = mean(data$X), S= 1)
-inits_tess[[2]] <- list(mu = (mean(data$X)-(mean(data$X)*(1/4))), S = 5)
-inits_tess[[3]] <- list(mu = mean(data$X)+(mean(data$X)*(1/4)), S = 10)
+inits_tess[[1]] <- list(mu = mean(data$X), S= 0.5)
+inits_tess[[2]] <- list(mu = (mean(data$X)-(mean(data$X)*(1/4))), S = 2)
+inits_tess[[3]] <- list(mu = mean(data$X)+(mean(data$X)*(1/4)), S = 1)
 
 j.model   <- jags.model (file = textConnection(NormalMeanN),
                              data = data,

@@ -1,0 +1,47 @@
+---
+title: "Quick Write Up"
+author: Tess McCabe
+output: html_notebook
+---
+
+
+Here I set up the Jags code for banana slug counts. I modeled the y data model as a Poisson distribution because it's count data, and then I made a data model for the missing data, based on the data I observed. Finally, based on the fact that there's a ten percent accuracy on the calibration of my instrument, I know that I need to make and explicit $X^o$ or X observed model. The 95% confidence interval and the n=150 suggests a specific model & prior for $X^o$, but I wasn't sure how exactly to tailor that prior. 
+
+
+Major things I misses after Mike went over it were:
+
+- putting a log link fucntion on $mu$
+
+    - I'm unsure if that was essential for useing a poission or just becuase mike wanted it to look like a logistic curve that decreases.
+    
+- putting a prior on the unobserved x[i] 
+
+- put a process model on sigma to account for the heteroskedacity change (10% accuracy)
+
+- bacekd out the prior on the a component of the sigma proccess model using the central tendencies 
+
+
+```{r}
+
+slugs_data<-rpois(35, 4)
+n<-length(slugs_data)
+mis<-c(9,13,27)
+
+full_model<-"model{
+  ## priors
+  for(i in 1:n) { beta[i] ~ dnorm(0,0.001)}
+  a ~ dgamma(75,0.1) # I know this corresponds to the 95% CI and n=150 but unsure how to incorperate that infor here. 
+
+  lambda ~ digamma(0.1,0.1) 
+
+  for(i in mis) { x[i] ~ dunif(min(slugs_data),max(slugs_data))}  # Data model for missing data
+
+  for(i in 1:n){
+    xo[i] ~ dnorm(x[i],sigma)  # Data model for observed 
+    log(mu[i]) <- beta[1]+beta[2]*x[i] # process model
+    y[i] ~ dpois(mu[i],lambda)  # data model for y
+    x[i] ~ dlnorn( #, #) # Prior on unobserved x
+    sigma[i] ~ 1/sqrt(a*x[i])
+  }
+}"
+

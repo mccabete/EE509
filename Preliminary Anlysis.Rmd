@@ -1,0 +1,398 @@
+---
+title: "Preliminary Analysis"
+author: "Tess McCabe"
+date: "4/4/2018"
+output: html_document
+---
+
+```{r, include= FALSE}
+library(coda)
+library(rjags)
+library(dplyr)
+require(devtools)
+```
+
+
+```{r, include= FALSE}
+## read in data
+
+ticks<-read.csv("~/Documents/Work/SERDP/SERDP/ticks.csv", header = TRUE)
+ticks$plot_id<-tolower(ticks$plot_id)
+#cogongrass<-read.csv("~/Dropbox/SERDP-Project/data/cogon-data.csv", header = TRUE)# get cogongrass biomass
+fuels<-read.csv("~/Dropbox/SERDP-Project/data/quadrat25cm.csv", header = TRUE) # get litter biomass, need to remove cogongrass as redundant
+fire<-read.csv("~/Dropbox/SERDP-Project/data/plot-info.csv", header = TRUE) #Get year last burnt
+fire$burn_unit_id<-tolower(fire$burn_unit_id)
+fire$burn_unit_id
+
+
+for(i in 1:length(fuels$plot_id)){
+  
+  if(substr(fuels$plot_id[i],1,1) %in% fire$burn_unit_id){
+    
+    matching_id<- fire[fire$burn_unit_id==substr(fuels$plot_id[i],1,1),]
+    matching_id<-matching_id[matching_id$instal == fuels$installation[i],]
+  
+    
+    year_burn<-unique(matching_id$fire_year)
+    
+    
+  fuels$time_since_last_burn[i]<-2018-year_burn
+    
+  }
+    
+}
+
+
+final<-left_join(fuels, ticks, by= "plot_id")
+```
+
+
+** Data exporation, not included in Rmarkdown **
+
+```{r, include= FALSE}
+plot(final$time_since_last_burn, final$count)
+plot(final$litter_mass_wet, final$count)
+plot(final$time_since_last_burn, final$litter_mass_wet)
+
+```
+
+
+## Tick population mean model 
+
+## Jags Model 
+
+Prior on density of ticks found in a publication on the sampleing of ticks: https://doaj.org/article/21e4a932ac87438ebb5f1804dc455a20
+
+```{r, include= FALSE}
+
+x_whalen<-na.omit(final$count[final$collection_method== "Whalen" |final$collection_method== "Drag" ])
+x_trap<-na.omit(final$count[final$collection_method== "trap" |final$collection_method== "people" ])
+
+n_whalen<-length(na.omit(final$count[final$collection_method== "Whalen" |final$collection_method== "Drag" ]))
+n_trap<-length(na.omit(final$count[final$collection_method== "trap" |final$collection_method== "people" ]))
+
+data <- list(x_whalen = x_whalen, x_trap= x_trap, n_trap = n_trap, n_whalen= n_whalen)
+
+
+mean_model = "
+model {
+mu ~ dnorm(lambda_prior, 1) # prior on the mean 
+  for(i in 1:n_whalen){
+	   #x_whalen[i]	## process model
+    x_whalen[i] ~ dpois((mu*efficientcy*time_whalen)*area_whalen)
+  }
+for(i in 1:n_trap){
+    #x_trap[i]     ## process model
+    x_trap[i] ~ dpois(mu*area_trap*time_trap)
+  }
+
+}"
+
+
+
+
+## specify priors
+data$lambda_prior<- 76.89473684  #density of tick in m^2
+#data$a <- 2                ## minimum hours spent on plot
+#data$b <- 5                   ## maximum hours spend on plot
+data$efficientcy<-0.01 #otherwise not seperable
+## Specify known values
+data$area_whalen <- 1/5 # meters squared
+data$area_trap <- 1/500 # meters squared
+data$time_whalen<-3.5 # This is an average of a varaible unit (2-5 hours /plot). Could model this, but would then wouldn't be seperatble from efficietcy or mu
+data$time_trap<-24 # hours
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list( mu = 50)
+}
+
+j.model   <- rjags::jags.model(file = textConnection(mean_model),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+## export R envoronment to geo for model run
+
+#save.image(file='Pre_Jags_Environment.RData')
+
+
+var.out.mean   <-rjags::coda.samples (model = j.model,
+                            variable.names = c( "mu"),
+                                n.iter = 20000)
+
+```
+
+**Checking for convergence**
+```{r, include = FALSE}
+
+coda::gelman.plot(var.out.mean)
+
+var.burn.mean<-window(var.out, 5000)
+var.mat.mean<-as.matrix(var.burn.mean)
+
+print(coda::effectiveSize(var.burn.mean)) # pleanty
+
+print(summary(var.burn.mean))
+```
+
+## Results
+```{r, echo=TRUE}
+hist(final$count)
+hist(var.mat)
+
+```
+
+
+## Linear regression model
+
+```{r, echo=TRUE}
+
+x_whalen<-na.omit(final$count[final$collection_method== "Whalen" | final$collection_method== "Drag" ])
+x_trap<-na.omit(final$count[final$collection_method== "trap" | final$collection_method== "people" ])
+
+x_whalen<-x_whalen[-c(9,10)] # edited due to missing data
+
+veg_whalen<-na.omit(final$litter_mass_wet[final$collection_method== "Whalen" |final$collection_method == "Drag" ])
+veg_trap<-na.omit(final$litter_mass_wet[final$collection_method== "trap" | final$collection_method== "people" ])
+
+n_whalen<-length(x_whalen)
+n_trap<-length(x_trap)
+
+data <- list(x_whalen = x_whalen, x_trap= x_trap, n_trap = c(n_trap, length(veg_trap)), n_whalen = c(n_whalen, length(veg_whalen)), veg_whalen = veg_whalen, veg_trap = veg_trap)
+
+
+univariate_regression = "
+model {
+phi ~ dunif(min,max)  	## prior on metabolic rate
+  
+
+  for(i in 1:n_whalen[1]){
+	   mu[i]<-veg_whalen[i]*phi	## process model
+    x_whalen[i] ~ dpois((mu[i]*efficientcy*time_whalen)*area_whalen)
+  }
+for(i in 1:n_trap[1]){
+    mu[n_whalen[1]+i]<-veg_trap[i]*phi
+    x_trap[i] ~ dpois(mu[i]*area_trap*time_trap)
+  }
+
+}"
+
+
+## Specify priors
+data$min <- 0.001      ## beta prior
+data$max <-10  ## beta prior
+
+## Specify "known" values 
+data$efficientcy<-0.01  # otherwise not seperable
+data$area_whalen <- 1/5 # meters squared
+data$area_trap <- 1/500 # meters squared
+data$time_whalen<-3.5 # This is an average of a varaible unit (2-5 hours /plot). Could model this, but would then wouldn't be seperatble from efficietcy or mu
+data$time_trap<-24 # hours
+
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(efficietcy = runif(1, 0.001, 1/2))
+}
+
+j.model   <- rjags::jags.model(file = textConnection(univariate_regression),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+## export R envoronment to geo for model run
+
+#save.image(file='Pre_Jags_Environment.RData')
+
+
+var.out.regression   <-rjags::coda.samples(model = j.model, variable.names = c("phi"), n.iter = 2000)
+
+```
+
+```{r, include = FALSE}
+
+coda::gelman.plot(var.out.regression)
+
+var.burn.regression<-window(var.out.regression, 1500)
+var.mat<-as.matrix(var.burn.regression)
+
+print(coda::effectiveSize(var.burn.regression)) #pleanty 
+print(summary(var.burn.regression))
+```
+
+
+
+## Logistic model
+
+```{r, echo=TRUE}
+
+fire_year_whalen<-na.omit(final$time_since_last_burn[final$collection_method== "Whalen" |final$collection_method == "Drag" ])
+fire_year_trap<-na.omit(final$time_since_last_burn[final$collection_method== "trap" | final$collection_method== "people" ])
+fire_year_whalen<-fire_year_whalen[-c(9,10)]
+
+n_whalen<-length(x_whalen)
+n_trap<-length(x_trap)
+
+data <- list(x_whalen = x_whalen, x_trap= x_trap, n_trap = c(n_trap, length(veg_trap)), n_whalen = c(n_whalen, length(veg_whalen)), veg_whalen = veg_whalen, veg_trap = veg_trap, fire_year_trap= fire_year_trap, fire_year_whalen= fire_year_whalen)
+
+
+logistic = "
+model {
+r ~  dunif(min, max)	## prior population growth
+N_0 ~ dnbinom(prob, size) ## prior on surviving population after fire
+
+  for(i in 1:n_whalen[1]){
+	   mu[i]<-N_0*exp(r*fire_year_whalen[i])
+    x_whalen[i] ~ dpois((mu[i]*efficientcy*time_whalen)*area_whalen)
+  }
+for(i in 1:n_trap[1]){
+    mu[n_whalen[1]+i]<-N_0*exp(r*fire_year_trap[i])
+    x_trap[i] ~ dpois(mu[i]*area_trap*time_trap)
+  }
+
+}"
+
+
+## Specify priors
+data$min <- 0.0001      ## uniform prior
+data$max <-10  ## uniform prior 
+data$size <-2   ## This frames "number of sucesses" as analygous to "number of ticks estimated to live"
+data$prob<- 0.001 ## very low
+
+## Specify "known" values 
+data$efficientcy<-0.01  # otherwise not seperable
+data$area_whalen <- 1/5 # meters squared
+data$area_trap <- 1/500 # meters squared
+data$time_whalen<-3.5 # This is an average of a varaible unit (2-5 hours /plot). Could model this, but would then wouldn't be seperatble from efficietcy or mu
+data$time_trap<-24 # hours
+
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(r = c(3))
+}
+
+j.model   <- rjags::jags.model(file = textConnection(logistic),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+## export R envoronment to geo for model run
+
+#save.image(file='Pre_Jags_Environment.RData')
+
+
+var.out.logistic   <-rjags::coda.samples(model = j.model, variable.names = c("N_0", "r"), n.iter = 3000)
+
+```
+
+```{r, include = FALSE}
+
+coda::gelman.plot(var.out.logistic)
+
+var.burn.logistic<-window(var.out.logistic, 2100)
+var.mat<-as.matrix(var.burn.logistic)
+
+print(coda::effectiveSize(var.burn.logistic)) #pleanty 
+print(summary(var.burn.logistic))
+```
+
+
+
+## Logistic model with a carying capacity
+
+
+```{r, echo=TRUE}
+
+fire_year_whalen<-na.omit(final$time_since_last_burn[final$collection_method== "Whalen" |final$collection_method == "Drag" ])
+fire_year_trap<-na.omit(final$time_since_last_burn[final$collection_method== "trap" | final$collection_method== "people" ])
+fire_year_whalen<-fire_year_whalen[-c(9,10)]
+
+n_whalen<-length(x_whalen)
+n_trap<-length(x_trap)
+
+data <- list(x_whalen = x_whalen, x_trap= x_trap, n_trap = c(n_trap, length(veg_trap)), n_whalen = c(n_whalen, length(veg_whalen)), veg_whalen = veg_whalen, veg_trap = veg_trap, fire_year_trap= fire_year_trap, fire_year_whalen= fire_year_whalen)
+
+
+logistic = "
+model {
+r ~  dunif(min1, max1)	## prior population growth
+N_0 ~ dnbinom(prob, size) ## prior on surviving population after fire
+phi ~ dunif(min,max)  	## prior on metabolic rate
+
+  for(i in 1:n_whalen[1]){
+     K[i] <- veg_whalen[i]*phi
+     A[i] <- (K[i] - N_0) / N_0
+	   mu[i] <- (K[i] / (1 + A[i] * exp( -r * fire_year_whalen[i]))) ##  bring together process model
+
+    x_whalen[i] ~ dpois((mu[i]*efficientcy*time_whalen)*area_whalen) # data model
+  }
+for(i in 1:n_trap[1]){
+    K[i+n_whalen[1]] <- veg_trap[i]*phi
+     A[i+n_whalen[1]] <- (K[i+n_whalen[1]] - N_0) / N_0
+    mu[n_whalen[1]+i]<- (K[i] / (1 + A[i] * exp( -r * fire_year_trap[i]))) ##  bring together process model
+
+    x_trap[i] ~ dpois(mu[i]*area_trap*time_trap)  # data model
+  }
+
+}"
+
+
+## Specify priors
+data$min1 <- 0.0001      ## uniform prior
+data$max1 <-10  ## uniform prior 
+data$size <-2   ## This frames "number of sucesses" as analygous to "number of ticks estimated to live"
+data$prob<- 0.001 ## very low
+data$min <- 0.001      ##  uniform prior
+data$max <-10  ## uniform prior
+
+## Specify "known" values 
+data$efficientcy<-0.01  # otherwise not seperable
+data$area_whalen <- 1/5 # meters squared
+data$area_trap <- 1/500 # meters squared
+data$time_whalen<-3.5 # This is an average of a varaible unit (2-5 hours /plot). Could model this, but would then wouldn't be seperatble from efficietcy or mu
+data$time_trap<-24 # hours
+
+
+## initial conditions
+nchain = 3
+inits <- list()
+for(i in 1:nchain){
+ inits[[i]] <- list(r = c(3))
+}
+
+j.model   <- rjags::jags.model(file = textConnection(logistic),
+                             data = data,
+                             inits = inits,
+                             n.chains = nchain)
+
+## export R envoronment to geo for model run
+
+#save.image(file='Pre_Jags_Environment.RData')
+
+
+var.out.logistic.full   <-rjags::coda.samples(model = j.model, variable.names = c("N_0", "r", "phi"), n.iter = 6000)
+
+```
+
+```{r, include = FALSE}
+
+coda::gelman.plot(var.out.logistic.full)
+
+var.burn.logistic.full<-window(var.out.logistic.full, 5000)
+var.mat<-as.matrix(var.burn.logistic.full)
+
+print(coda::effectiveSize(var.burn.logistic.full)) #pleanty 
+print(summary(var.burn.logistic.full))
+```
+
+
+
+

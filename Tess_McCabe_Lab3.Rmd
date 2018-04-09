@@ -2,7 +2,9 @@
 title: "Tess_McCabe_Lab3"
 author: "Tess McCabe"
 date: "2/5/2018"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 $$L = Pr(a \vert \rho) \propto Exp(a \vert \rho) = \prod \rho , exp(-\rho a_i)$$
@@ -85,18 +87,57 @@ $$ -log(L) = -n \cdot log(\rho) + \rho \sum_{i=1}^{n} a_i$$
 
 
 ```{r, echo= TRUE}
-hist<-hist(dat)
+hist<-hist((dat), probability= TRUE)
 plot(hist)
-lines(dexp(dat),dat)
-
-plot(dexp(dat),dat)
-
-ggplot2::ggplot(data=dat)+
-  ggplot2::geom_histogram()+
-  ggplot2::geom_line()
-
+lines(dexp(dat)*100,dat,type = "p")  # Multiplying by 100 for convienience of scale
 
 ```
+**Case Sutdy 2**
+Weibull distribution:
+
+$$f(x \vert c, \lambda) = \left({{c}\over{\lambda}}\right)\left( {x \over \lambda} \right)^{c-1} exp\left( -\left( {x\over \lambda} \right)^c \right)$$
+```{r, echo=TRUE}
+age = 0:160
+plot(age,dweibull(age,1,50),type='l',ylab="density",ylim=c(0,0.025)) 
+lines(age,dweibull(age,2,50),col="red") 
+lines(age,dweibull(age,.5,50),col="green") 
+
+```
+2) Does increasing the `shape` parameter cause fire risk to increase or decrease with age?
+
+Sort of both. It shifts the age where the risk of fire is the highest later in time, but also decreases the risk of fire after that.  So a 150 year old tree will fare better in a system that matches a distribution with a "shape" parameter of 3, but a 50 year old tree is worse off than a sapling tree for that same distribution. 
+```{r, echo=TRUE}
+age = 0:160
+plot(age,dweibull(age,1,50),type='l',ylab="density",ylim=c(0,0.025)) 
+lines(age,dweibull(age,2,50),col="red") 
+lines(age,dweibull(age,3,50),col="green") 
+
+```
+
+
+3) Extra Credit: Plot the CDF of these 3 distributions. What is significant about the scale parameter? What is the analytically solution for the CDF at this point? Add these lines to your CDF plot. The analytically solution for the CDF is: 
+
+$$ F(x) = 1 - e^{(- (x/\ scale\ )^a)} $$ 
+$$ 0.6 = 1 - e^{(- (x/\ 50\ )^1)}  $$ 
+$$ ln(0.4) = - (x/\ 50\ )^1  $$ 
+$$-0.9162907 = - (x/\ 50\ )^1 $$
+$$= 45.81 $$
+The scale gives the value at which certain quantiles are reached. My shape values are changing, but the graphs are intersect at one point. You can also solve the equation for an x at which the graph will be at a certain quantile. 
+
+A plot of the CDF's:
+
+```{r, echo=TRUE}
+age = 0:160
+
+scales<-c(50,50,50)
+plot(age,pweibull(age,1,scales[1]),type='l',ylab="density") 
+lines(age,pweibull(age,2,scales[2]),col="red") 
+lines(age,pweibull(age,0.5,scales[3]),col="green") 
+abline(h=0.60) # quantile
+abline(v=45.81) #age
+
+```
+
 
 
 
@@ -131,19 +172,15 @@ exp_bionom<-function(rho){ #For t=20
 }
 
 fit_ex_binom<-optimise(exp_bionom, interval=c(0, 2))
-fit #Estimate of Rho
+fit_ex_binom #Estimate of Rho
 
 ### Calculating the -log likelyhood profile
 
 plot( rseq,-dbinom(y,n, exp(-rseq*20), log=TRUE), ylab="Likelyhood", xlab="rho")
+abline(v=fit_ex_binom$minimum)
 ```
 *-  Answer the following question:  If we wanted to test the assumption that mortality rate was constant in time, which of the two data sets could we use and what model would we fit?*
 
-We would look at the first "graduate student" dataset becuase it captures mortality at multiple times, whereas the "advisor" dataset only samples mortality at one time, meaning that the chage in mortality over time is assumed. 
+We would look at the first "graduate student" data set because it captures mortality at multiple times, whereas the "adviser" data set only samples mortality at one time, meaning that the change in mortality over time is assumed. We would fit the exponential distribution, because it assumes a constant mortality rate (Chapter 2 of Clark). 
 
 
-
-
-
-
-*6) Extra Credit: A plot of the exponential PDF with two curves, one based on the Exponential model from the start of this lab and the second from the Binomial/Exponential fit you just found* 
