@@ -242,7 +242,7 @@ var.out.regression   <-rjags::coda.samples(model = j.model.regression, variable.
 ```
 
 **Checking for convergence**
-```{r, include = FALSE, warning=FALSE}
+```{r, include = FALSE, warning=FALSE, echo=TRUE}
 
 #coda::gelman.plot(var.out.regression)
 
@@ -346,7 +346,7 @@ var.out.logistic   <-rjags::coda.samples(model = j.model.logistic, variable.name
 
 ```
 
-```{r, include = FALSE}
+```{r, include = FALSE, echo=TRUE}
 
 #coda::gelman.plot(var.out.logistic)
 
@@ -460,7 +460,7 @@ var.out.logistic.full   <-rjags::coda.samples(model = j.model.logistic.full, var
 
 ```
 
-```{r, include = FALSE}
+```{r, include = FALSE, echo=TRUE}
 
 #coda::gelman.plot(var.out.logistic.full)
 
@@ -539,6 +539,6 @@ print(paste("Logistic With Carying Capacity DIC:"))
 
 These analysis was meant to compare different population models. Using DIC as a metric, I was going to compare my mean-only model to my regression model, and my regression model to my two logistic models. From there, I would hypothesize about how the different components of each model (litter biomass, year since burnt) might be affecting tick populations. It could be that the variables themselves aren't what made my particular mode a good fit, but the functional form of the model. I could then explore this line of reasoning by seeing if I took the model with the lower DIC and switched the variables involved if I got a better DIC. 
 
-However, I think my analysis revealed that my models aren't at a place where they representative of structure. As it stands the "fixed values" I use have a disproportionately large affect on the analysis. I think this is especially clear in the mean model analysis. Despite being loaded with a large prior, the final mean resembles the Whalen sampling method more closely than the trap sampling method. I know that the trap sampling method constitutes a large fraction of the data, so I suspect this result is due to the choice to put tick counts into density by dividing by the area and the efficiency. Both area and efficient are tied to one another- and hard to quantify. I don't belie that Whalen evenly covered every centimeter of the 500 m^2 plots, and efficiency is a number I chose at random. Improving this analysis means getting a more representative (and separable) estimate of efficiency.  
+However, I think my analysis revealed that my models aren't at a place where they are representative of structure. As it stands the "fixed values" I use have a disproportionately large affect on the analysis. I think this is especially clear in the mean model analysis. Despite being loaded with a large prior, the final mean resembles the Whalen sampling method more closely than the trap sampling method. I know that the trap sampling method constitutes a large fraction of the data, so I suspect this result is due to the choice to put tick counts into density by dividing by the area and the efficiency. Both area and efficient are tied to one another- and hard to quantify. I don't think that Whalen evenly covered every centimeter of the 500 m^2 plots, and efficiency is a number I chose at random. Improving this analysis means getting a more representative (and separable) estimate of efficiency.  
 
 Looking at the analysis I do have, it seems tentatively like a logistic-based population model will have the lowest DIC. My confidence and predictive intervals speak to some errors in CI and PI making  - especially in my predictive intervals. 

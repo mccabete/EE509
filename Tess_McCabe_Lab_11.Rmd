@@ -1,0 +1,258 @@
+---
+author: "Tess McCabe"
+date: "4/18/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(rjags)
+library(coda)
+
+moose<-read.table("data/alcesdata.txt", header = TRUE)
+```
+
+
+## Set up of exponential model
+The discrete-time exponential growth model:
+
+$$N_{t+1} = N_t e^{r+\epsilon_t}$$
+
+
+```{r, echo= TRUE}
+
+exponential<-" model {
+
+### priors
+r ~ dnorm(r_0, v_r)
+tau ~ dgamma(t_1, t_2)
+sigma ~dgamma(s_1, s_2)
+x[1] ~ dnorm(mu1, v_0)
+
+
+### Data model / Observation error
+for ( i in 2:N){
+y[i] ~ dnorm(x[i],tau)
+}
+
+### Process model for exponential growth
+  for(t in 2:N) {
+    mu[t] <- x[t-1] + r
+    x[t] ~ dnorm(mu[t],sigma)
+  }
+}
+"
+
+### data
+data<-list()
+data$y<-log(moose$density)
+data$N<-length(moose$year)
+
+### Priors
+data$r_0<-2
+data$v_r<-1
+data$t_1<-2
+data$t_2<-2
+data$s_1<-2
+data$s_2<-2
+data$mu1<-4
+data$v_0<-1
+
+
+### Some quick estimates for informative initial conditions
+time_shift_up<-moose$density[-c(1)]
+time_shift_down<-moose$density[-c(length(moose$density))]
+diff<-time_shift_up-time_shift_down
+diff<-na.omit(diff)
+meanR<-mean(na.omit(diff))
+
+inits_tess<-list() #
+inits_tess[[1]] <- list(r = meanR,  tau = 4, sigma = sd(na.omit(moose$density)))
+inits_tess[[2]] <-  list( r = mean(diff[diff >0]),  tau = 4, sigma = sd(na.omit(moose$density)))
+inits_tess[[3]] <-  list( r = mean(diff[diff < 0]), tau = 4, sigma = sd(na.omit(moose$density)))
+
+j.model.exponential   <- jags.model (file = textConnection(exponential),
+                             data = data,
+                             inits = inits_tess,
+                             n.chains = 3)
+
+jags.out.exponential   <- coda.samples (model = j.model.exponential,
+                            variable.names = c("r", "tau", "sigma", "y[44]", "y[18:21]", "x"),
+                                n.iter = 65000)
+
+```
+
+***Diagnostic plots***
+```{r, echo=FALSE, include= FALSE}
+
+gelman.plot(jags.out.exponential) # good past 600
+
+jags.burn.exponential <- window(jags.out.exponential,start = 35000)
+effectiveSize(jags.burn.exponential) # Very large sample size
+
+jags.mat.exponential<-as.matrix(jags.burn.exponential)
+
+```
+
+
+
+
+## Set up of Ricker model
+Ricker model (discrete-time equivalent to logistic growth): 
+
+$$N_{t+1} = N_t e^{r (1 - N_t / K) + \epsilon_t}$$
+
+
+```{r, echo=TRUE}
+ricker<-" model {
+
+### priors
+r ~ dnorm(r_0, v_r)
+k ~ dlnorm(k_0, v_k)
+tau ~ dgamma(t_1, t_2)
+sigma ~dgamma(s_1, s_2)
+x[1] ~ dnorm(mu1, v_0)
+
+
+### Data model / Observation error
+for ( i in 2:N){
+y[i]~ dnorm(x[i],tau)
+}
+
+### Process model for exponential growth
+  for(t in 2:N) {
+    mu[t] <- x[t-1] + r*(1-(y[t-1]/k))
+    x[t] ~ dnorm(mu[t],sigma)
+  }
+}
+"
+
+### data
+data<-list()
+data$y<-log(moose$density)
+data$N<-length(moose$year)
+
+### Priors
+data$r_0<-2
+data$v_r<-1
+data$k_0<-3
+data$v_k<-0.5
+data$t_1<-2
+data$t_2<-2
+data$s_1<-2
+data$s_2<-2
+data$mu1<-4
+data$v_0<-1
+
+
+inits_tess<-list() #
+inits_tess[[1]] <- list(r = meanR, k = max(na.omit(moose$density)), tau = 4, sigma = sd(na.omit(moose$density)))
+inits_tess[[2]] <-  list( r = mean(diff[diff >0]), k = max(na.omit(moose$density))+meanR, tau = 4, sigma = sd(na.omit(moose$density)))
+inits_tess[[3]] <-  list( r = mean(diff[diff < 0]), k = max(na.omit(moose$density))-meanR, tau = 4, sigma = sd(na.omit(moose$density)))
+
+j.model.ricker   <- jags.model (file = textConnection(ricker),
+                             data = data,
+                             inits = inits_tess,
+                             n.chains = 3)
+
+jags.out.ricker   <- coda.samples (model = j.model.ricker,
+                            variable.names = c("r", "k", "tau", "sigma","y[44]", "y[18:21]", "x"),
+                                n.iter = 65000)
+
+```
+
+***Diagnostic plots***
+```{r, echo=FALSE, include= FALSE}
+
+gelman.plot(jags.out.ricker) # good past 600
+
+jags.burn.ricker <- window(jags.out.ricker,start = 101000)
+effectiveSize(jags.burn.ricker) # Not quite at 5000, but 3591 isn't too bad considering. 
+jags.mat.ricker<-as.matrix(jags.burn.ricker)
+
+```
+
+
+
+## lab report tasks
+
+- Write out and run the JAGS code for the exponential growth model. Include the JAGS code in your lab report. Also include the following plots: 
+
+   - a) Plots of the time series data on both the LOG and LINEAR scales that include the model mean and credible intervals.
+   
+   
+```{r, echo= TRUE}
+
+x <-  jags.mat.exponential[,grep("x",colnames(jags.mat.exponential))]
+
+
+
+ci.exponential <- apply(x,2,quantile,c(0.025,0.5,0.975), na.rm=TRUE)  ## credible interval and median
+
+ci.exponential2 <- apply(exp(x),2,quantile,c(0.025,0.5,0.975), na.rm=TRUE)  ## credible interval and median
+### Plots
+
+plot(moose$year, log(moose$density), main= "Log Scale")
+lines(moose$year,ci.exponential[1,],col=6,lty=2)	## lower ci.alpha
+lines(moose$year,ci.exponential[2,],col=6,lwd=3)	## median
+lines(moose$year,ci.exponential[3,],col=6,lty=2)	## upper ci.alpha
+
+plot(moose$year, moose$density, main= "Linear Scale")
+lines(moose$year,ci.exponential2[1,],col=6,lty=2)	## lower ci.alpha
+lines(moose$year,ci.exponential2[2,],col=6,lwd=3)	## median
+lines(moose$year,ci.exponential2[3,],col=6,lty=2)	## upper ci.alpha
+
+
+```
+   
+   - b) Density plots for the predicted values for the missing data 
+   - c) Density plots of the intrinsic growth rate, the observation error variance, and the process model error variance
+```{r, echo= TRUE}
+plot(jags.burn.exponential)
+```
+   
+   
+   
+- Modify the exponential growth process model in the JAGS code to instead be the Ricker growth model. Rerun including your JAGS code and the same figures as in part 1 plus plots for both the prior and posterior density on the carrying capacity.
+
+```{r, echo=TRUE}
+x <-  jags.mat.ricker[,grep("x",colnames(jags.mat.ricker))]
+
+
+
+ci.ricker <- apply(x,2,quantile,c(0.025,0.5,0.975), na.rm=TRUE)  ## credible interval and median
+
+ci.ricker2 <- apply(exp(x),2,quantile,c(0.025,0.5,0.975), na.rm=TRUE)  ## credible interval and median
+### Plots
+
+plot(moose$year, log(moose$density), main= "Log Scale")
+lines(moose$year,ci.ricker[1,],col=6,lty=2)	## lower ci.alpha
+lines(moose$year,ci.ricker[2,],col=6,lwd=3)	## median
+lines(moose$year,ci.ricker[3,],col=6,lty=2)	## upper ci.alpha
+
+plot(moose$year, moose$density, main= "Linear Scale")
+lines(moose$year,ci.ricker2[1,],col=6,lty=2)	## lower ci.alpha
+lines(moose$year,ci.ricker2[2,],col=6,lwd=3)	## median
+lines(moose$year,ci.ricker2[3,],col=6,lty=2)	## upper ci.alpha
+
+plot(jags.burn.ricker)
+
+```
+
+- Construct a summary table that includes the parameters in both models, their 95% CI, and the model DIC scores.
+```{r, echo= TRUE}
+
+dic.samples(j.model.exponential, n.iter = 2000)
+
+paste("Exponential fit", summary(jags.burn.exponential), dic.samples(j.model.exponential, n.iter = 2000))
+print("__________________________________________________________________________________________")
+paste("Ricker fit",summary(jags.burn.ricker), dic.samples(j.model.ricker, n.iter = 2000) )
+
+```
+
+- Briefly give an interpretation of your results. Be sure to comment on which model is a better fit, what you can interpret about the importance of density dependence in regulating this population, and whether the population is at its carrying capacity.
+
+There wasn't much visual difference between to two models. However the DIC scores are slightly (very slightly) different, with the exponential model getting a 57.65 and the ricker model getting a 56.69. This is close enough that I think the models are more or less identical, which they would be if the moose were just hitting thier carrying capacity or hadn't hit it yet. 
+
+- What can you infer about the relative importance of autogenic vs exogenous factors in regulating this population?
+
+This model isn't dependant on any exogenous factors, so that fact that both models did pretty well (at least visually) suggests that the population is dependant on autogenic factors (density). 

@@ -35,7 +35,7 @@ Next, lets assume that the observation error on the population densities is logn
  
 $$Y_t \sim N(X_t,\tau^2)$$
 
-![Figure 1](images/Lab10.1.jpg)
+
 
 Figure 1:  Graph representation of the state space model (priors not shown).  Under parameters, b represents the process model coefficients (r for the exponential, r and K for the Ricker), $\tau^2$ is the observation error, and $\sigma^2$ is the process error..  As defined above, X and Y are the latent “true” density and the observed values, respectively. The letters A, B, and C indicate the three terms that contribute to the posterior for Xt.  
 

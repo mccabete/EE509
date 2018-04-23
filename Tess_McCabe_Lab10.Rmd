@@ -1,6 +1,8 @@
 ---
 title: "Tess_McCabe_Lab10"
-output: html_notebook
+output:
+  html_document: default
+  html_notebook: default
 ---
 
 ```{r, include=FALSE}
@@ -18,7 +20,7 @@ data<- read.csv("data/Mosquito.csv", header = TRUE)
 - Plot mosquito abundance as a function of time in a way that distinguishes the reps (e.g. with lines, colors, or symbols)
 
 ```{r, echo=TRUE}
-plot(x= data$time, y=data[,2], ylim=c(6.5,8.5))
+plot(x= data$time, y=data[,2], ylim=c(6.5,8.5), type ="l")
 lines(x= data$time, y=data[,3], col =2)
 lines(x= data$time, y=data[,4], col =3)
 lines(x= data$time, y=data[,5], col =4)
@@ -43,7 +45,6 @@ for(i in 1:n){
   }
 }
 }
-  
 "
 
 inits_tess<-list()
@@ -57,7 +58,7 @@ j.model   <- jags.model (file = textConnection(NormalMeanN),
                              n.chains = 3)
 jags.out   <- coda.samples (model = j.model,
                             variable.names = c("mu", "S"),
-                                n.iter = 5000)
+                                n.iter = 9000)
 ```
 
 Hint 1: You can use the JAGS code from lab 5, but remember that your “x” is a matrix of year-by-rep and thus you will need to loop over both year and rep rather than just looping 'i in 1:n'.
@@ -82,12 +83,12 @@ npred <- length(xpred)				##      make predictions for
 ypred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for predictive interval
 ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
 mu<-as.matrix(jags.burn[,2])
-S<-as.matrix(jags.burn[,1])
+S_1<-as.matrix(jags.burn[,1])
 
 
 for(g in seq_len(nsamp)){
   ycred[g,] <- mu[g]
-  ypred[g,] <- rnorm(npred,mean =ycred[g,], sd=1/(S[g])^(1/2))
+  ypred[g,] <- rnorm(npred,mean =ycred[g,], sd=1/(S_1[g])^(1/2))
 }
 
 ci <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
@@ -107,8 +108,248 @@ lines(xpred,pi[2,],col=6,lty=2)	## upper PI
 ```
 
 ## Lab Report Task 2
+- Add the random year effect to the process model.
+
+```{r, echo= TRUE}
+NormalMeanN <- "
+model {
+  S ~ dexp(R) # Prior on varience
+  mu ~ dnorm(mu0,T) # prior on the mean 
+ tau.t ~ dnorm(mu02, T2)  # Prior on year-year variability
+
+for(t in 1:n){
+
+alpha.t[t] ~ dnorm(0,tau.t)
+Ex[t] <- mu + alpha.t[t]
+
+
+for(g in 1:nb){
+    x[t,g] ~ dnorm(Ex[t],S) # data model
+  }
+}
+}
+  
+"
+data_model$mu02<-10
+data_model$T2<-0.01
+
+j.model.alpha   <- jags.model (file = textConnection(NormalMeanN),
+                             data = data_model,
+                             inits = inits_tess,
+                             n.chains = 3)
+jags.out.alpha  <- coda.samples (model = j.model.alpha,
+                            variable.names = c("mu", "S", "alpha.t", "tau.t"),
+                                n.iter = 106000)
+
+```
+
+- Fit the random-time model and turn in a plot like in Task 1 with the posterior CI and PI plotted against the data. Hint: once you convert the JAGS coda object to a matrix, you can use grep to figure out which columns contain alphas:
+
+** Diagnostic plots - not to be included in final Knitting**
+```{r, include=FALSE}
+gelman.plot(jags.out.alpha)
+jags.burn.alpha <- window(jags.out.alpha, start= 30000)
+effectiveSize(jags.burn.alpha) # Very large sample size
+
+jags.mat.alpha <- as.matrix(jags.burn.alpha)
+
+```
+
+```{r, echo=TRUE}
+## credible and prediction intervals
+nsamp <- 50
+samp <- sample.int(nrow(as.matrix(jags.burn.alpha)),nsamp)
+xpred <- seq(from= 1995.02, to=2004, length.out = 10) 					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- array(dim=c(nsamp, 10, npred))	## storage for predictive interval
+#ypred<-list()
+#ypred <-matrix(0.0,nrow=nsamp,ncol=npred)
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+E<- matrix(0.0,nrow=nsamp,ncol=npred) ## storage for intermediate variable
+mu<-jags.mat.alpha[,grep("mu",colnames(jags.mat.alpha))]
+S<-jags.mat.alpha[,grep("S",colnames(jags.mat.alpha))]
+alpha <- jags.mat.alpha[,grep("alpha",colnames(jags.mat.alpha))]
+
+for(t in 1:length(xpred)){           ## Cycles through the years
+for(g in seq_len(nsamp)){
+    E[g, t]<-mu[g]+alpha[g,t]
+    ycred[g,t] <- E[g,t]
+    ypred[g,t,] <- rnorm(npred,mean =ycred[g,t], sd=1/(S[g])^(1/2))
+  }
+}
+#ycred<-ycred[,1:5]
+ci.alpha <- apply(ycred,2,quantile,c(0.025,0.5,0.975))  ## credible interval and median
+pi.alpha <- apply(ypred,2,quantile,c(0.025,0.975))		## prediction interval
+
+plot(x= data$time, y=data[,2], ylim=c(6,9), type= "l")
+lines(x= data$time, y=data[,3], col =2)
+lines(x= data$time, y=data[,4], col =3)
+lines(x= data$time, y=data[,5], col =4)
+lines(x= data$time, y=data[,6], col =5)
+lines(xpred,ci.alpha[1,],col=6,lty=2)	## lower ci.alpha
+lines(xpred,ci.alpha[2,],col=6,lwd=3)	## median
+lines(xpred,ci.alpha[3,],col=6,lty=2)	## upper ci.alpha
+lines(xpred,pi.alpha[1,],col=6,lty=2)	## lower pi.alpha
+lines(xpred,pi.alpha[2,],col=6,lty=2)	## upper pi.alpha
+
+```
+
+- Based on the posterior mean estimates from this model, approximately what percentage of the variance in the mosquito densities is explained by the year effects? Which parameters (and from which models) do you need to look at to assess this?
+
+## I HAVE NO IDEA FOR THIS QUESTION
 ```{r, echo= TRUE}
 
+mean_alpha<-apply(alpha, 2, mean)
+mean_alpha<-(mean_alpha^2)^(1/2)  ## To get absolute value of alpha
+percent_ex<-(sum(mean_alpha)/mean(S_1))
+print(paste("percent explained", percent_ex*100, "%"))
+
+```
+
+
+# Lab Report Task Three
+
+```{r, echo= TRUE}
+met<- read.csv("data/met.csv", header = TRUE)
+alpha_mean<-apply(alpha, 2, mean)
+
+```
+
+- As an exploratory analysis of this hypothesis, plot the posterior mean of your random year effect (alpha.t) versus each of the three met variables. Turn in figures and note which variable(s) are worth exploring further.
+```{r,echo=TRUE}
+met<-met[-c(11:15),]
+plot(alpha_mean, met$precip, main= "Precipitation vs year-year variability")
+
+plot(alpha_mean, met$MAT, main= "Mean annual tempurature vs year-year variability")
+plot(alpha_mean, met$RH, main= "Percent Humidity vs year-year variability")
+
+```
+
+- Convert the random effects model to a mixed effects model by converting the mean, mu, to a linear model, beta0 + beta1*y[i] where y is the meteorological covariate you want to include, while keeping the random year effect.
+
+```{r, echo=TRUE}
+regression <- "
+model {
+  S ~ dexp(R) # Prior on varience
+  beta1 ~ dnorm(b0,Vb) 
+  beta2 ~ dnorm(b02,Vb2) 
+ tau.t ~ dnorm(mu02, T2)  # Prior on year-year variability
+
+for(t in 1:n){
+
+mu[t] <- beta1+beta2*y[t]
+alpha.t[t] ~ dnorm(0,tau.t)
+Ex[t] <- mu[t] + alpha.t[t]
+
+
+for(g in 1:nb){
+    x[t,g] ~ dnorm(Ex[t],S) # data model
+  }
+}
+}
+  
+"
+data_model = list(n = length(data[,1]), nb= 5, R = 0.01, x = data[,2:6] )
+
+data_model$y<-met$precip
+data_model$mu02<-10
+data_model$T2<-0.01
+data_model$b0<-1
+data_model$b02<-3
+data_model$Vb<-2
+data_model$Vb2<-4
+inits_tess<-list()
+inits_tess[[1]] <- list(beta2 = mean(data[,2]), S= 1)
+inits_tess[[2]] <- list(beta2 = (mean(data[,3])-(mean(data[,3])*(1/4))), S = 5)
+inits_tess[[3]] <- list(beta2 = mean(data[,4])+(mean(data[,4])*(1/4)), S = 10)
+
+
+j.model.regression   <- jags.model (file = textConnection(regression),
+                             data = data_model,
+                             inits = inits_tess,
+                             n.chains = 3)
+jags.out.regression   <- coda.samples (model = j.model.regression,
+                            variable.names = c("beta1","beta2", "S", "alpha.t", "tau.t"),
+                             n.iter = 2136000)
+
+```
+
+**Diagnostic plots**
+```{r, echo=FALSE, include=FALSE}
+gelman.plot(jags.out.regression)
+jags.burn.regression <- window(jags.out.regression, start= 120000)
+effectiveSize(jags.burn.regression) # Very large sample size
+
+jags.mat.regression <- as.matrix(jags.burn.regression)
+
+```
+
+- Fit your mixed effects model and plot the model CI and PI vs the data
+
+```{r, echo=TRUE, warning=FALSE}
+
+## credible and prediction intervals
+nsamp <- 50
+samp <- sample.int(nrow(as.matrix(jags.burn.regression)),nsamp)
+xpred <- seq(from= 1995.02, to=2004, length.out = 10) 					## sequence of x values we're going to
+npred <- length(xpred)				##      make predictions for
+ypred <- array(dim=c(nsamp, 10, npred))	## storage for predictive interval
+#ypred<-list()
+#ypred <-matrix(0.0,nrow=nsamp,ncol=npred)
+ycred <- matrix(0.0,nrow=nsamp,ncol=npred)	## storage for credible interval
+E<- matrix(0.0,nrow=nsamp,ncol=npred) ## storage for intermediate variable
+mu<-matrix(0.0,nrow=nsamp,ncol=npred)
+beta1<-jags.mat.regression[,grep("beta1",colnames(jags.mat.regression))]
+beta2<-jags.mat.regression[,grep("beta2",colnames(jags.mat.regression))]
+S<-jags.mat.regression[,grep("S",colnames(jags.mat.regression))]
+alpha <- jags.mat.regression[,grep("alpha",colnames(jags.mat.regression))]
+
+jit_met<-jitter(met$precip)
+
+for(t in 1:length(xpred)){           ## Cycles through the years
+for(g in seq_len(nsamp)){
+  mu[g,t]<-beta1[g]+beta2[g]*jit_met[g]
+    E[g, t]<-mu[g,t]-alpha[g,t]
+    ycred[g,t] <- E[g,t]
+    ypred[g,t,] <- rnorm(npred,mean =ycred[g,t], sd=(1/(S[g])^(1/2)))
+  }
+}
+#ycred<-ycred[,1:5]
+ci.regression <- apply(ycred,2,quantile,c(0.025,0.5,0.975), na.rm=TRUE)  ## credible interval and median
+pi.regression <- apply(ypred,2,quantile,c(0.025,0.975), na.rm= TRUE)		## prediction interval
+
+ci.regression<-ci.regression 
+
+plot(x= data$time, y=data[,2], ylim=c(5.5,9), type= "l")
+lines(x= data$time, y=data[,3], col =2)
+lines(x= data$time, y=data[,4], col =3)
+lines(x= data$time, y=data[,5], col =4)
+lines(x= data$time, y=data[,6], col =5)
+lines(xpred,ci.regression[1,],col=6,lty=2)	## lower ci.regression
+lines(xpred,ci.regression[2,],col=6,lwd=3)	## median
+lines(xpred,ci.regression[3,],col=6,lty=2)	## upper ci.regression
+lines(xpred,pi.regression[1,],col=10,lty=2)	## lower pi.regression
+lines(xpred,pi.regression[2,],col=10,lty=2)	## upper pi.regression
+
+```
+
+- Create a summary table that provides the posterior parameter means and CI for all 3 models and their DIC scores.
+```{r, echo=TRUE, include=TRUE}
+print("Mean model:")
+summary(jags.out)
+dic.samples(j.model, n.iter = 200)
+print("_______________________________________________________________________________________")
+
+print("Mean model with Random effects:")
+summary(jags.out.alpha)
+dic.samples(j.model.regression, n.iter = 200)
+print("_______________________________________________________________________________________")
+
+print("regression and random effects:")
+summary(jags.out.regression)
+dic.samples(j.model.regression, n.iter = 200)
+print("_______________________________________________________________________________________")
 
 
 ```
+

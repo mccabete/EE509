@@ -31,6 +31,7 @@ full_model<-"model{
   ## priors
   for(i in 1:n) { beta[i] ~ dnorm(0,0.001)}
   a ~ dgamma(75,0.1) # I know this corresponds to the 95% CI and n=150 but unsure how to incorperate that infor here. 
+x[i] ~ dlnorn( #, #) # Prior on unobserved x
 
   lambda ~ digamma(0.1,0.1) 
 
@@ -40,7 +41,7 @@ full_model<-"model{
     xo[i] ~ dnorm(x[i],sigma)  # Data model for observed 
     log(mu[i]) <- beta[1]+beta[2]*x[i] # process model
     y[i] ~ dpois(mu[i],lambda)  # data model for y
-    x[i] ~ dlnorn( #, #) # Prior on unobserved x
+    
     sigma[i] ~ 1/sqrt(a*x[i])
   }
 }"

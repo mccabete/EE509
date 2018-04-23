@@ -1,5 +1,5 @@
 ---
-title: "Preliminary Analysis 4/9"
+title: "Preliminary Analysis"
 author: "Tess McCabe"
 date: "4/4/2018"
 output: html_document
@@ -179,7 +179,7 @@ title("Modeled Tick population distribution (per m^2)" )
 
 ## Linear regression model
 
-```{r, echo=TRUE, warning=FALSE}
+```{r, echo=TRUE}
 
 x_whalen<-na.omit(final$count[final$collection_method== "Whalen" | final$collection_method== "Drag" ])
 x_trap<-na.omit(final$count[final$collection_method== "trap" | final$collection_method== "people" ])
@@ -242,7 +242,7 @@ var.out.regression   <-rjags::coda.samples(model = j.model.regression, variable.
 ```
 
 **Checking for convergence**
-```{r, include = FALSE, warning=FALSE}
+```{r, include = FALSE}
 
 #coda::gelman.plot(var.out.regression)
 
@@ -254,7 +254,7 @@ print(summary(var.burn.regression))
 ```
 **Results **
 
-```{r, echo= TRUE, warning=FALSE}
+```{r, echo= TRUE}
 
 ## credible and prediction intervals
 nsamp <- 300
@@ -287,7 +287,7 @@ lines(xpred,pi[2,],col=4,lty=2)	## upper PI
 
 ## Logistic model
 
-```{r, echo=TRUE, warning=FALSE}
+```{r, echo=TRUE}
 
 fire_year_whalen<-na.omit(final$time_since_last_burn[final$collection_method== "Whalen" |final$collection_method == "Drag" ])
 fire_year_trap<-na.omit(final$time_since_last_burn[final$collection_method== "trap" | final$collection_method== "people" ])
@@ -358,7 +358,7 @@ print(summary(var.burn.logistic))
 ```
 
 ** Results **
-```{r, echo= TRUE, warning=FALSE}
+```{r, echo= TRUE}
 
 
 ## credible and prediction intervals
@@ -391,7 +391,7 @@ lines(xpred,pi[2,],col=4,lty=2)	## upper PI
 
 ## Logistic model with a carying capacity
 
-```{r, echo=TRUE, warning=FALSE}
+```{r, echo=TRUE}
 
 fire_year_whalen<-na.omit(final$time_since_last_burn[final$collection_method== "Whalen" |final$collection_method == "Drag" ])
 fire_year_trap<-na.omit(final$time_since_last_burn[final$collection_method== "trap" | final$collection_method== "people" ])
@@ -473,7 +473,7 @@ print(summary(var.burn.logistic.full))
 
 ** Results **
 
-```{r, echo= TRUE, warning=FALSE}
+```{r, echo= TRUE}
 
 ## credible and prediction intervals
 nsamp <- 300
